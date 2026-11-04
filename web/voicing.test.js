@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildChordMap, voiceLead } from "./theory.js";
 
-import { computeVoicings, displayName, voicingTransitionCost } from "./voicing.js";
+import { computeVoicings, displayName, voicingTransitionCost, voicingClusterCost } from "./voicing.js";
 
 const map = buildChordMap();
 const ids = ["C", "E7>Am", "Am", "D7>G", "G", "B7>Em", "Em"];
@@ -49,7 +49,7 @@ describe("공통 보이싱 계산", () => {
 const chord = (rootPc, kind, name = "C") => ({ id: `${rootPc}-${kind}`, rootPc, kind, name });
 const c = chord(0, "maj", "C");
 const iiVI = [chord(2, "min", "Dm"), chord(7, "dom7", "G7"), c];
-const types = ["auto", "close", "shell", "drop2", "rootlessA", "rootlessB", "spread"];
+const types = ["auto", "close", "shell", "drop2", "rootlessA", "rootlessB", "rootless", "spread"];
 const pitchClasses = v => v.upper.map(n => n % 12).sort((a, b) => a - b);
 
 
@@ -59,7 +59,8 @@ describe("타입별 보이싱", () => {
   });
   it("Cmaj7 drop2는 G3 C4 E4 B4이다", () => {
     expect(computeVoicings([c], { type: "drop2" })[0])
-      .toEqual({ bass: 36, upper: [55, 60, 64, 71] });
+      .toEqual({ bass: 36, upper: [52, 60, 67] });
+    expect(displayName(c, { type: "drop2" })).toBe("C");
     expect(computeVoicings([chord(0, "maj7")], { type: "drop2" })[0].upper)
       .toEqual([55, 60, 64, 71]);
   });
@@ -70,9 +71,9 @@ describe("타입별 보이싱", () => {
       .toEqual({ bass: 36, upper: [71, 74, 76, 79] });
   });
   it("close, shell, spread가 서로 다른 배치를 만든다", () => {
-    expect(computeVoicings([c], { type: "close" })[0].upper).toEqual([60, 64, 67, 71]);
-    expect(computeVoicings([c], { type: "shell" })[0].upper).toEqual([64, 71]);
-    expect(computeVoicings([c], { type: "spread" })[0].upper).toEqual([60, 64, 79, 83]);
+    expect(computeVoicings([c], { type: "close" })[0].upper).toEqual([60, 64, 67]);
+    expect(computeVoicings([c], { type: "shell" })[0].upper).toEqual([60, 64, 67]);
+    expect(computeVoicings([c], { type: "spread" })[0].upper).toEqual([60, 64, 79]);
     const extended = computeVoicings([c], { type: "close", neoSoul: true })[0].upper;
     expect(extended.at(-1) - extended[0]).toBeLessThan(12);
   });
@@ -88,9 +89,11 @@ describe("타입별 보이싱", () => {
             for (let i = 1; i < all.length; i++)
               if (all[i - 1] < 52) expect(all[i] - all[i - 1]).toBeGreaterThan(4);
             expect(pitchClasses(v)).toContain((rootPc + third) % 12);
-            expect(pitchClasses(v)).toContain((rootPc + seventh) % 12);
+            if (neoSoul || type.startsWith("rootless") || !["maj", "min"].includes(kind))
+              expect(pitchClasses(v)).toContain((rootPc + seventh) % 12);
+            else expect(pitchClasses(v)).toEqual([rootPc, (rootPc + third) % 12, (rootPc + 7) % 12].sort((a, b) => a - b));
             expect(v.bass).toBe(36 + rootPc);
-            if (type.startsWith("rootless")) expect(pitchClasses(v)).not.toContain(rootPc);
+            if (neoSoul || type.startsWith("rootless")) expect(pitchClasses(v)).not.toContain(rootPc);
           }
         }
       }
@@ -118,7 +121,7 @@ describe("연주 시에만 적용하는 확장음", () => {
   it("감7은 확장되지 않고 장조의 자연 11은 사용하지 않는다", () => {
     const dim = chord(11, "dim7", "B°");
     expect(displayName(dim, { neoSoul: true })).toBe("B°");
-    expect(pitchClasses(computeVoicings([dim], { neoSoul: true })[0])).toEqual([2, 5, 8, 11]);
+    expect(pitchClasses(computeVoicings([dim], { neoSoul: true })[0])).toEqual([2, 5, 8]);
     const sharp11 = { bass: 36, upper: [60, 64, 66, 71, 74] };
     expect(computeVoicings([c], { neoSoul: true, locks: { 0: sharp11 } })[0]).toEqual(sharp11);
     expect(() => computeVoicings([c], { neoSoul: true, locks: { 0: { ...sharp11, upper: [60, 64, 65, 71, 74] } } })).toThrow();
@@ -127,7 +130,7 @@ describe("연주 시에만 적용하는 확장음", () => {
 
 describe("진행 전체 최적화와 잠금", () => {
   it("미래 잠금에 따라 첫 코드부터 바뀌며 잠금 객체를 공유하지 않는다", () => {
-    const locked = { bass: 36, upper: [72, 74, 76, 79, 83] };
+    const locked = { bass: 36, upper: [76, 79, 83, 86] };
     const result = computeVoicings([c, c], { neoSoul: true, locks: { 1: locked } });
     expect(result[1]).toEqual(locked);
     expect(result[0]).toEqual(locked); // 전체 비용 0: 탐욕적으로 첫 코드를 먼저 고르면 실패한다.
@@ -163,11 +166,98 @@ describe("진행 전체 최적화와 잠금", () => {
       { bass: 37, upper: [60, 64, 71] }, // 다른 근음
       { bass: 36, upper: [64, 60, 71] }, // 성부 교차
       { bass: 36, upper: [60, 64, 128] },
-    ]) expect(() => computeVoicings([c], { locks: { 0: bad } })).toThrow();
+    ]) expect(() => computeVoicings([c], { neoSoul: true, locks: { 0: bad } })).toThrow();
     expect(() => computeVoicings([c], { type: "rootlessA", locks: { 0: { bass: 36, upper: [60, 64, 71] } } })).toThrow();
     expect(() => computeVoicings([c], { locks: { 1: lock } })).toThrow();
     expect(() => computeVoicings([c], { type: "unknown" })).toThrow();
     expect(() => computeVoicings([c], { neoSoul: "true" })).toThrow();
     expect(computeVoicings([], { neoSoul: true })).toEqual([]);
+  });
+});
+
+describe("화성과 타입·잠금 분리 회귀", () => {
+  it.each(types.filter(type => !type.startsWith("rootless")))("%s: neoSoul:false의 장·단3화음은 잠금과 무관하다", type => {
+    const before = structuredClone(nodes);
+    const result = computeVoicings(nodes, { type, locks: { 1: legacy[1] } });
+    result.forEach((v, i) => {
+      if (["maj", "min"].includes(nodes[i].kind)) {
+        const third = nodes[i].kind === "maj" ? 4 : 3;
+        expect(pitchClasses(v)).toEqual([0, third, 7].map(n => (n + nodes[i].rootPc) % 12).sort((a, b) => a - b));
+        expect(displayName(nodes[i], { type, locks: { 1: legacy[1] } })).toBe(nodes[i].name);
+      }
+    });
+    expect(nodes).toEqual(before);
+  });
+  it.each(["rootlessA", "rootlessB", "rootless"])("%s만 neoSoul:false에도 7음·9음을 보충하고 이름에 표시한다", type => {
+    expect(displayName(c, { type })).toBe("Cmaj9");
+    expect(displayName(iiVI[0], { type })).toBe("Dm9");
+    expect(displayName(iiVI[1], { type }, c)).toBe("G9");
+    const result = computeVoicings([c], { type })[0];
+    expect(pitchClasses(result)).toEqual([2, 4, 7, 11]);
+  });
+  it("기본 결과 전체를 잠그면 오류 없이 같은 결과가 나온다", () => {
+    for (const progression of [nodes, map.nodes]) {
+      const baseline = computeVoicings(progression);
+      const locks = Object.fromEntries(baseline.map((v, index) => [index, v]));
+      const result = computeVoicings(progression, { locks });
+      expect(result).toEqual(baseline);
+      expect(result[0].upper).not.toBe(baseline[0].upper);
+    }
+  });
+  it("기본 결과 하나를 잠가도 그 코드는 그대로 보존한다", () => {
+    legacy.forEach((v, index) => {
+      expect(computeVoicings(nodes, { locks: { [index]: v } })[index]).toEqual(v);
+    });
+  });
+  it.each(["auto", "close", "shell", "drop2", "spread"])("%s: 부분 잠금 앞의 코드는 전체 경로로 최적화한다", type => {
+    const fixed = computeVoicings([c], { type })[0];
+    const high = { bass: fixed.bass, upper: type === "spread" ? [64, 67, 84] : fixed.upper.map(n => n + 12) };
+    const result = computeVoicings([c, c, c], { type, locks: { 2: high } });
+    expect(result).toEqual([high, high, high]); // 전 구간 이동 비용 0
+    expect(result[0]).not.toEqual(fixed);
+  });
+  it("drop2의 C는 3음만 포함하고 명시적 Cmaj7만 7음을 유지한다", () => {
+    expect(pitchClasses(computeVoicings([c], { type: "drop2" })[0])).toEqual([0, 4, 7]);
+    expect(displayName(c, { type: "drop2" })).toBe("C");
+    expect(displayName(chord(0, "maj7"), { type: "drop2" })).toBe("Cmaj7");
+  });
+});
+
+describe("선율과 뭉침 최적화", () => {
+  it.each(types)("%s: 예시 진행의 최상성부 이동 대부분이 4반음 이하이다", type => {
+    for (const neoSoul of [false, true]) {
+      const result = computeVoicings(nodes, { type, neoSoul });
+      const leaps = result.slice(1).map((v, i) => Math.abs(v.upper.at(-1) - result[i].upper.at(-1)));
+      expect(leaps.filter(n => n <= 4).length).toBeGreaterThanOrEqual(5);
+    }
+  });
+  it("neoSoul auto는 루트를 상성부에서 빼고 단2도 뭉침을 제한한다", () => {
+    const result = computeVoicings(nodes, { neoSoul: true });
+    let semitones = 0;
+    result.forEach((v, index) => {
+      expect(pitchClasses(v)).not.toContain(nodes[index].rootPc);
+      semitones += v.upper.slice(1).filter((n, i) => n - v.upper[i] === 1).length;
+      expect(voicingClusterCost(v)).toBeLessThan(30); // 연속 2도 3개가 없다.
+    });
+    expect(semitones).toBeLessThanOrEqual(2);
+  });
+  it("단2도별 벌점과 연속 2도 3개 벌점을 별도로 적용한다", () => {
+    expect(voicingClusterCost({ upper: [60, 64, 67, 71] })).toBe(0);
+    expect(voicingClusterCost({ upper: [60, 61, 65, 66] })).toBe(12);
+    expect(voicingClusterCost({ upper: [60, 62, 64, 66] })).toBe(30);
+    expect(voicingClusterCost({ upper: [60, 61, 63, 65] })).toBe(36);
+  });
+  it("명시적 잠금에서도 루트와 b9는 단9도 이상 떨어져야 한다", () => {
+    const e = chord(4, "dom7", "E7"), a = chord(9, "min", "Am");
+    const spaced = { bass: 40, upper: [52, 56, 59, 62, 65] };
+    expect(computeVoicings([e, a], { neoSoul: true, locks: { 0: spaced } })[0]).toEqual(spaced);
+    const clustered = { bass: 40, upper: [56, 59, 62, 64, 65] };
+    expect(() => computeVoicings([e, a], { neoSoul: true, locks: { 0: clustered } })).toThrow();
+  });
+  it("rootless는 진행에 맞춰 A와 B 최저음을 함께 선택한다", () => {
+    const result = computeVoicings(iiVI, { type: "rootless", neoSoul: true });
+    const bottoms = result.map((v, i) => (v.upper[0] - iiVI[i].rootPc + 120) % 12);
+    expect(bottoms.every((n, i) => [i === 0 ? 3 : 4, i === 2 ? 11 : 10].includes(n))).toBe(true);
+    expect(new Set(bottoms.map((n, i) => n === (i === 0 ? 3 : 4) ? "A" : "B")).size).toBe(2);
   });
 });
