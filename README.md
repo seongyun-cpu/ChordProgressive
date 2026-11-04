@@ -12,6 +12,7 @@ VS Code에서 이 폴더를 열거나 `ChordProgressive.code-workspace`를 여�
 | --- | --- |
 | `web/app.js` | SVG 코드 맵, 화면 상태와 버튼 동작 |
 | `web/theory.js` | 화성 이론, 그래프, 코드 인식 |
+| `web/voicing.js` | 공통 보이싱 계산: 상성부와 베이스 |
 | `web/audio.js` | Web Audio 재생과 스케줄러 |
 | `web/shortcuts.js` | 키보드 단축키 |
 | `web/storage.js` | 진행 저장, URL 공유, MIDI/PNG 출력 |
@@ -43,7 +44,7 @@ npm run build
 - 코드 회전, 추가 화성, 음색/리듬, 저장/공유, MIDI/PNG 출력 기능이 있습니다.
 - 사슴 장식과 릴스 모드는 제거되어 있습니다.
 - 되돌리기: Mac ⌘Z / Windows Ctrl+Z
-- 비우기: Mac ⌘X / Windows Ctrl+X
+- 비우기: Shift+Backspace (진행이 4개 이상이면 확인)
 - 자동 산책 A, 반복 L, 재생/정지 Space
 - 입력란에서는 기본 편집 단축키를 유지합니다.
 

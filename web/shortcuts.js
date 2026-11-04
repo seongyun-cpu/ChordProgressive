@@ -10,9 +10,9 @@ export function shortcutAction(
     { z: "KeyZ", x: "KeyX", a: "KeyA", l: "KeyL", " ": "Space" }[key];
   if (event.metaKey || event.ctrlKey) {
     if (event.shiftKey) return null;
-    return code === "KeyZ" ? "undo" : code === "KeyX" ? "clear" : null;
+    return code === "KeyZ" ? "undo" : null;
   }
-  if (event.shiftKey) return null;
+  if (event.shiftKey) return key === "backspace" || code === "Backspace" ? "clear" : null;
   if (code === "Space") return "play";
   if (code === "KeyA") return "walk";
   if (code === "KeyL") return "loop";

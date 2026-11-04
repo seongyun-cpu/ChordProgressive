@@ -2,10 +2,10 @@ import {
   buildChordMap,
   canStartChord,
   nextOptions,
-  voiceLead,
   randomWalk,
   chordDescription,
 } from "./theory.js";
+import { computeVoicings } from "./voicing.js";
 import { shortcutAction } from "./shortcuts.js";
 import { AudioEngine } from "./audio.js";
 import {
@@ -321,13 +321,11 @@ function pick(idx) {
     );
     return;
   }
-  let v = null;
-  for (const i of prog) v = voiceLead(v, map.nodes[i]);
   prog.push(idx);
   focus = 0;
   render();
   engine
-    .audition(map.nodes[idx], v, settings())
+    .audition(progressionVoicings().at(-1), settings())
     .catch((e) => status(e.message));
   sendSerial(map.nodes[idx].name);
 }
@@ -339,8 +337,7 @@ async function play() {
   render();
   try {
     await engine.start({
-      path: prog,
-      nodes: map.nodes,
+      voicings: progressionVoicings(),
       ...settings(),
       onStep(i, sec) {
         playIdx = i;
@@ -366,6 +363,7 @@ function undo() {
   render();
 }
 function clear() {
+  if (prog.length >= 4 && !window.confirm("코드 진행을 모두 비울까요?")) return;
   stop();
   prog = [];
   focus = 0;
@@ -572,14 +570,17 @@ $("share").onclick = run(async () => {
     status("주소창에 공유 URL을 만들었습니다. 주소를 복사해주세요.");
   }
 });
+function progressionVoicings() {
+  return computeVoicings(prog.map(i => map.nodes[i]), settings());
+}
 $("export").onclick = () => {
-  let v = null;
+  const voicings = progressionVoicings();
   const data = {
     ...settings(),
-    chords: prog.map((i) => {
+    chords: prog.map((i, index) => {
       const n = map.nodes[i];
-      v = voiceLead(v, n);
-      return { id: n.id, name: n.name, ring: n.ring, kind: n.kind, midi: v };
+      const voicing = voicings[index];
+      return { id: n.id, name: n.name, ring: n.ring, kind: n.kind, midi: voicing.upper, bass: voicing.bass };
     }),
   };
   downloadBlob(
@@ -593,7 +594,7 @@ $("midi-export").onclick = run(() => {
     new Blob(
       [
         makeMidi(
-          prog.map((i) => map.nodes[i]),
+          progressionVoicings(),
           settings().bpm,
           settings().beats,
         ),

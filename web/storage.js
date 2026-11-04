@@ -1,4 +1,4 @@
-import { voiceLead, QUALITY } from "./theory.js";
+import { isValidVoicing } from "./voicing.js";
 
 const STORAGE_KEY = "chord-lab.progressions.v1";
 const MAX_CHORDS = 1024;
@@ -160,20 +160,13 @@ function variableLength(value) {
   while ((value = Math.floor(value / 128))) bytes.unshift((value & 127) | 128);
   return bytes;
 }
-export function makeMidi(nodes, bpm = 90, beats = 2) {
+export function makeMidi(voicings, bpm = 90, beats = 2) {
   validateSettings({ bpm, beats });
   if (
-    !Array.isArray(nodes) ||
-    !nodes.length ||
-    nodes.length > MAX_CHORDS ||
-    nodes.some(
-      (n) =>
-        !n ||
-        !QUALITY[n.kind] ||
-        !Number.isInteger(n.rootPc) ||
-        n.rootPc < 0 ||
-        n.rootPc > 11,
-    )
+    !Array.isArray(voicings) ||
+    !voicings.length ||
+    voicings.length > MAX_CHORDS ||
+    voicings.some(v => !isValidVoicing(v))
   )
     throw new Error("MIDI로 저장할 코드를 먼저 선택해주세요.");
   const tempo = Math.round(60000000 / bpm),
@@ -190,12 +183,11 @@ export function makeMidi(nodes, bpm = 90, beats = 2) {
     192,
     0,
   ];
-  let voicing = null;
-  for (const node of nodes) {
-    voicing = voiceLead(voicing, node);
-    for (const note of voicing) track.push(0, 144, note, 88);
+  for (const voicing of voicings) {
+    const notes = [...voicing.upper, voicing.bass];
+    for (const note of notes) track.push(0, 144, note, 88);
     // 다음 코드의 같은 음이 먼저 꺼지지 않도록 note-off를 앞에 둔다.
-    voicing.forEach((note, index) =>
+    notes.forEach((note, index) =>
       track.push(...variableLength(index ? 0 : ticks), 128, note, 0),
     );
   }

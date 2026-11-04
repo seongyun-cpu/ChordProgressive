@@ -1,4 +1,5 @@
-import { voiceLead, midiToFreq } from "./theory.js";
+import { midiToFreq } from "./theory.js";
+import { isValidVoicing } from "./voicing.js";
 
 export const LOOKAHEAD_MS = 25;
 export const SCHEDULE_AHEAD = 0.1;
@@ -97,33 +98,32 @@ export class AudioEngine {
     oscillator.stop(time + duration + 0.02);
   }
 
-  chord(notes, node, time, duration, timbre, rhythm) {
-    for (const event of rhythmEvents(notes, duration, rhythm)) {
+  chord(voicing, time, duration, timbre, rhythm) {
+    for (const event of rhythmEvents(voicing.upper, duration, rhythm)) {
       this.note(event.midi, time + event.offset, event.duration, timbre);
     }
-    this.note(36 + node.rootPc, time, duration * 0.94, "pad", 0.09);
+    this.note(voicing.bass, time, duration * 0.94, "pad", 0.09);
   }
 
-  async audition(node, previousVoicing = null, settings = {}) {
+  async audition(voicing, settings = {}) {
     this.stop();
     const generation = this.generation;
+    if (!isValidVoicing(voicing)) throw new Error("보이싱 음을 확인해주세요.");
+    const snapshot = { bass: voicing.bass, upper: [...voicing.upper] };
     const ac = await this.ready();
     if (generation !== this.generation) return null;
-    const notes = voiceLead(previousVoicing, node);
     this.chord(
-      notes,
-      node,
+      snapshot,
       ac.currentTime + 0.01,
       0.85,
       settings.timbre || "piano",
       settings.rhythm || "block",
     );
-    return notes;
+    return snapshot;
   }
 
   async start({
-    path,
-    nodes,
+    voicings,
     bpm = 90,
     beats = 2,
     timbre = "piano",
@@ -134,10 +134,10 @@ export class AudioEngine {
   }) {
     this.stop();
     const generation = this.generation;
-    const snapshot = path.map((index) => ({ ...nodes[index] }));
+    if (!Array.isArray(voicings) || voicings.some(v => !isValidVoicing(v)))
+      throw new Error("보이싱 음을 확인해주세요.");
+    const snapshot = voicings.map(v => ({ bass: v.bass, upper: [...v.upper] }));
     if (!snapshot.length) return;
-    if (snapshot.some((node) => !node.kind))
-      throw new Error("진행에 없는 코드가 있어요.");
     const tempo = Number.isFinite(+bpm)
       ? Math.max(40, Math.min(200, +bpm))
       : 90;
@@ -148,10 +148,6 @@ export class AudioEngine {
     const ac = await this.ready();
     if (generation !== this.generation) return;
     const start = ac.currentTime + 0.04;
-    let previous = null;
-    const voicings = snapshot.map(
-      (node) => (previous = voiceLead(previous, node)),
-    );
     let cursor = 0;
     let shown = -1;
     this.playing = true;
@@ -171,7 +167,6 @@ export class AudioEngine {
         const remaining = event.time + duration - ac.currentTime;
         if (remaining > 0.03)
           this.chord(
-            voicings[event.index],
             snapshot[event.index],
             Math.max(ac.currentTime, event.time),
             Math.min(duration, remaining),

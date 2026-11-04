@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { shortcutAction } from "./shortcuts.js";
 describe("공통 단축키", () => {
   for (const modifier of ["metaKey", "ctrlKey"]) {
-    it(`${modifier} 되돌리기와 비우기를 분리한다`, () => {
+    it(`${modifier} 되돌리기와 기존 잘라내기를 분리한다`, () => {
       expect(shortcutAction({ code: "KeyZ", [modifier]: true })).toBe("undo");
-      expect(shortcutAction({ code: "KeyX", [modifier]: true })).toBe("clear");
+      expect(shortcutAction({ code: "KeyX", [modifier]: true })).toBeNull();
       expect(
         shortcutAction({ code: "KeyZ", [modifier]: true, shiftKey: true }),
       ).toBeNull();
@@ -44,4 +44,14 @@ describe("공통 단축키", () => {
     ])
       expect(shortcutAction({ key })).toBe(action);
   });
+});
+
+it("Shift+Backspace만 비우고 입력란·조합·추가 modifier는 보호한다", () => {
+  const event = { code: "Backspace", shiftKey: true };
+  expect(shortcutAction(event)).toBe("clear");
+  expect(shortcutAction({ key: "Backspace", shiftKey: true })).toBe("clear");
+  expect(shortcutAction(event, { interactive: true })).toBe("clear");
+  expect(shortcutAction(event, { editable: true })).toBeNull();
+  for (const modifier of ["metaKey", "ctrlKey", "altKey", "isComposing"])
+    expect(shortcutAction({ ...event, [modifier]: true })).toBeNull();
 });

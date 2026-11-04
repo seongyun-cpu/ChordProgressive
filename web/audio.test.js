@@ -65,8 +65,7 @@ describe("재생 취소", () => {
     );
     const engine = new AudioEngine();
     const pending = engine.start({
-      path: [0],
-      nodes: [{ rootPc: 0, kind: "maj" }],
+      voicings: [{ bass: 36, upper: [60, 64, 67] }],
     });
     engine.stop();
     resume();
@@ -85,5 +84,19 @@ describe("재생 취소", () => {
     expect(source.stop).toHaveBeenCalledOnce();
     expect(cancel).toHaveBeenCalledWith(42);
     expect(engine.sources.size).toBe(0);
+  });
+});
+
+describe("기존 코드 연주 회귀", () => {
+  it("상성부 리듬과 별도 베이스 음색·길이·세기를 유지한다", () => {
+    const engine = new AudioEngine();
+    engine.note = vi.fn();
+    engine.chord({ bass: 36, upper: [60, 64, 67] }, 10, 2, "piano", "arpeggio");
+    expect(engine.note.mock.calls).toEqual([
+      [60, 10, 2 * .94, "piano"],
+      [64, 10 + 2 / 3, (2 - 2 / 3) * .94, "piano"],
+      [67, 10 + 4 / 3, (2 - 4 / 3) * .94, "piano"],
+      [36, 10, 2 * .94, "pad", .09],
+    ]);
   });
 });

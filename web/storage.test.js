@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   encodeProgression,
   decodeProgression,
@@ -7,7 +7,10 @@ import {
   deleteProgression,
   makeMidi,
 } from "./storage.js";
-import { buildChordMap, voiceLead } from "./theory.js";
+import { buildChordMap } from "./theory.js";
+
+import { computeVoicings } from "./voicing.js";
+import { AudioEngine } from "./audio.js";
 
 const memoryStorage = () => {
   const values = new Map();
@@ -139,7 +142,7 @@ describe("표준 MIDI 내보내기", () => {
     const nodes = ["C", "E7>Am", "Am"].map((id) =>
       map.nodes.find((n) => n.id === id),
     );
-    const events = parseMidi(makeMidi(nodes, 120, 2));
+    const events = parseMidi(makeMidi(computeVoicings(nodes), 120, 2));
     expect(events[0]).toEqual({
       time: 0,
       status: 255,
@@ -152,14 +155,12 @@ describe("표준 MIDI 내보내기", () => {
       type: 47,
       data: [],
     });
-    let previous = null;
-    nodes.forEach((node, index) => {
-      previous = voiceLead(previous, node);
+    computeVoicings(nodes).forEach((voicing, index) => {
       expect(
         events
           .filter((e) => e.status === 144 && e.time === index * 960)
           .map((e) => e.data[0]),
-      ).toEqual(previous);
+      ).toEqual([...voicing.upper, voicing.bass]);
     });
     for (const time of [960, 1920]) {
       const sameTick = events.filter((e) => e.time === time);
@@ -177,10 +178,56 @@ describe("표준 MIDI 내보내기", () => {
     );
   });
   it("분수 박과 잘못된 입력을 처리한다", () => {
-    const node = buildChordMap().nodes[0];
+    const node = computeVoicings([buildChordMap().nodes[0]])[0];
     expect(parseMidi(makeMidi([node], 90, 0.5)).at(-1).time).toBe(240);
     expect(() => makeMidi([], 90, 2)).toThrow();
     expect(() => makeMidi([node], 0, 2)).toThrow();
     expect(() => makeMidi([{ rootPc: 0, kind: "bad" }])).toThrow();
+  });
+});
+
+describe("재생과 MIDI의 공통 보이싱", () => {
+  it("스케줄러가 연주한 모든 음이 MIDI note-on/off와 일치한다", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const engine = new AudioEngine();
+    const ac = { currentTime: 0 };
+    engine.ready = async () => ac;
+    engine.note = vi.fn();
+    const voicings = computeVoicings(buildChordMap().nodes.slice(0, 6));
+    // 전달된 베이스를 그대로 사용하는지도 검사한다.
+    voicings[1].bass = 30;
+    const events = parseMidi(makeMidi(voicings, 120, 2));
+    try {
+      const pending = engine.start({ voicings, bpm: 120, beats: 2 });
+      voicings[1].upper[0] = 100;
+      voicings[1].bass = 31;
+      await pending;
+      for (let index = 0; index < voicings.length; index++) {
+        if (index) {
+          ac.currentTime = index;
+          vi.advanceTimersByTime(25);
+        }
+        const played = engine.note.mock.calls.map(call => call[0]);
+        for (const [status, tick] of [[144, index * 960], [128, (index + 1) * 960]]) {
+          expect(events.filter(e => e.status === status && e.time === tick)
+            .map(e => e.data[0])).toEqual(played);
+        }
+        engine.note.mockClear();
+      }
+    } finally {
+      engine.stop();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+  it("인코딩된 기존 공유 링크가 같은 코드와 보이싱으로 열린다", () => {
+    const { ids } = decodeProgression("#C.E7%3EAm.Am.D7%3EG.G.B7%3EEm.Em");
+    const map = buildChordMap();
+    const nodes = ids.map(id => map.nodes.find(node => node.id === id));
+    expect(nodes).toHaveLength(7);
+    expect(nodes.every(Boolean)).toBe(true);
+    expect(computeVoicings(nodes).at(-1)).toEqual({ bass: 40, upper: [59, 64, 67] });
   });
 });
