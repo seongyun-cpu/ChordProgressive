@@ -21,6 +21,20 @@
         °는 이 맵에서 감7화음(°7)을 뜻해요. 예: B° = B·D·F·A♭ → C로 해결.
       </p>
       <div id="chips" class="chips" aria-label="만든 코드 진행"></div>
+      <section id="voicing-panel" class="voicing-panel" aria-labelledby="voicing-title" hidden>
+        <div class="voicing-heading">
+          <strong id="voicing-title"></strong>
+          <button id="voicing-lock" aria-pressed="false">🔓 보이싱 잠금</button>
+          <button id="voicing-truncate">여기까지 남기기</button>
+        </div>
+        <p class="hand-legend"><span class="bass-label">● 왼손 · bass</span><span class="upper-label">● 오른손 · upper</span></p>
+        <p class="voicing-notes">C2–C6 · 작은 화면에서는 건반을 좌우로 스크롤하세요.</p>
+        <div class="keyboard-scroll" tabindex="0" aria-label="건반 가로 스크롤">
+          <svg id="voicing-keyboard" viewBox="0 0 696 140" role="img"></svg>
+        </div>
+        <p id="voicing-notes" class="voicing-notes"></p>
+        <p id="voicing-range" class="voicing-notes"></p>
+      </section>
       <div class="caption" id="caption" aria-live="polite"></div>
       <div id="candidates" class="candidates" aria-label="다음 코드 후보"></div>
       <div class="toolbar">
@@ -95,6 +109,20 @@
               <option value="strum">스트럼</option>
             </select></label
           >
+        </div>
+        <div class="controls">
+          <label>보이싱 타입
+            <select id="voicing-type">
+              <option value="auto">자동 · auto</option>
+              <option value="close">밀집 · close</option>
+              <option value="shell">셸 · shell</option>
+              <option value="drop2">드롭 2 · drop2</option>
+              <option value="rootlessA">루트리스 A · rootlessA</option>
+              <option value="rootlessB">루트리스 B · rootlessB</option>
+              <option value="spread">넓게 · spread</option>
+            </select>
+          </label>
+          <label><input id="neo-soul" type="checkbox" />네오소울 · 확장음</label>
         </div>
         <fieldset>
           <legend>화살표 표시 · 선의 명도로 구분</legend>

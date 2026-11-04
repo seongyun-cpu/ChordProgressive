@@ -5,7 +5,8 @@ import {
   randomWalk,
   chordDescription,
 } from "./theory.js";
-import { computeVoicings } from "./voicing.js";
+import { computeVoicings, displayName } from "./voicing.js";
+import { renderVoicingPanel } from "./voicing-panel.js";
 import { shortcutAction } from "./shortcuts.js";
 import { AudioEngine } from "./audio.js";
 import {
@@ -37,8 +38,13 @@ let map = buildChordMap(),
 let nodes = [],
   edges = [],
   usedLayer;
+let voicingType = "auto", neoSoul = false, locks = {}, selectedChord = -1;
+let voicingCache = { key: "", value: [] };
 const visible = { dominant: true, ring: true, passing: true };
 const settings = () => ({
+  type: voicingType,
+  neoSoul,
+  locks,
   strict: $("strict").checked,
   rotation,
   bpm: Math.max(40, Math.min(200, +$("bpm").value || 90)),
@@ -260,20 +266,25 @@ function render(animate = false) {
       );
     }
   }
+  const currentVoicings = progressionVoicings();
   $("chips").replaceChildren();
   prog.forEach((idx, i) => {
     const b = document.createElement("button");
     b.className = `chip ${i === prog.length - 1 ? "last" : ""} ${i === playIdx ? "playing" : ""}`;
-    b.textContent = map.nodes[idx].name;
-    b.title = "여기까지 되돌리기";
+    b.classList.toggle("selected", i === selectedChord);
+    b.dataset.index = i;
+    b.textContent = `${chordName(i)}${locks[i] ? " 🔒" : ""}`;
+    b.setAttribute("aria-pressed", String(i === selectedChord));
+    b.title = "보이싱 건반 보기";
     b.onclick = () => {
       stop();
-      prog = prog.slice(0, i + 1);
-      focus = 0;
+      selectedChord = i;
       render();
     };
     $("chips").append(b);
   });
+  renderVoicingPanel({ index: selectedChord, name: selectedChord >= 0 ? chordName(selectedChord) : "",
+    voicing: currentVoicings[selectedChord], locked: !!locks[selectedChord] });
   $("caption").replaceChildren();
   const strong = document.createElement("strong"),
     small = document.createElement("span");
@@ -298,6 +309,22 @@ function render(animate = false) {
   }
   $("play").textContent = playing ? "■ 정지" : "▶ 재생";
 }
+function chordName(index) {
+  return displayName(map.nodes[prog[index]], settings(), map.nodes[prog[index + 1]]);
+}
+function replaceProgression(next, resetLocks = false) {
+  const nextLocks = resetLocks ? {} : Object.fromEntries(Object.entries(locks).filter(([i]) => +i < next.length));
+  try {
+    computeVoicings(next.map(i => map.nodes[i]), { ...settings(), locks: nextLocks });
+  } catch (error) {
+    status(`${error.message} 해당 보이싱의 잠금을 해제한 뒤 다시 시도해주세요.`);
+    return false;
+  }
+  prog = next;
+  locks = nextLocks;
+  selectedChord = resetLocks ? -1 : Math.min(selectedChord, prog.length - 1);
+  return true;
+}
 function stop() {
   engine.stop();
   cancelAnimationFrame(demoFrame);
@@ -309,7 +336,7 @@ function stop() {
 function pick(idx) {
   if (demoActive) {
     stop();
-    prog = [];
+    replaceProgression([], true);
   } else if (playing) stop();
   if (
     $("strict").checked &&
@@ -321,7 +348,7 @@ function pick(idx) {
     );
     return;
   }
-  prog.push(idx);
+  if (!replaceProgression([...prog, idx])) return;
   focus = 0;
   render();
   engine
@@ -358,29 +385,29 @@ async function play() {
 }
 function undo() {
   stop();
-  prog.pop();
+  if (!replaceProgression(prog.slice(0, -1))) return;
   focus = 0;
   render();
 }
 function clear() {
   if (prog.length >= 4 && !window.confirm("코드 진행을 모두 비울까요?")) return;
   stop();
-  prog = [];
+  replaceProgression([], true);
   focus = 0;
   render();
 }
 function walk() {
   stop();
   const path = randomWalk(map, prog.at(-1) ?? 0, 8);
-  prog = prog.length ? [...prog, ...path.slice(1)] : path;
+  if (!replaceProgression(prog.length ? [...prog, ...path.slice(1)] : path)) return;
   render();
   void play();
 }
 function demo() {
   stop();
-  prog = ["C", "E7>Am", "Am", "D7>G", "G", "B7>Em", "Em"].map(
+  replaceProgression(["C", "E7>Am", "Am", "D7>G", "G", "B7>Em", "Em"].map(
     (id) => map.nodes.find((n) => n.id === id).idx,
-  );
+  ), true);
   demoActive = true;
   playIdx = 0;
   duration = (60 / settings().bpm) * settings().beats;
@@ -407,20 +434,21 @@ function rebuild() {
   stop();
   const ids = prog.map((i) => map.nodes[i].id);
   map = buildChordMap(settings());
-  prog = ids.map((id) => map.nodes.findIndex((n) => n.id === id));
-  if (prog.includes(-1)) {
-    prog = [];
+  const rebuilt = ids.map((id) => map.nodes.findIndex((n) => n.id === id));
+  if (rebuilt.includes(-1)) {
+    replaceProgression([], true);
     status(
       "꺼진 추가 화성의 코드가 있어 진행을 비웠습니다. 저장한 진행은 유지돼요.",
     );
   }
+  else replaceProgression(rebuilt);
   focus = 0;
   draw();
 }
 function cycle(d) {
   if (demoActive) {
     stop();
-    prog = [];
+    replaceProgression([], true);
   }
   if (opts().length) focus = (focus + d + opts().length) % opts().length;
   else {
@@ -484,6 +512,52 @@ $("undo").onclick = undo;
 $("clear").onclick = clear;
 $("walk").onclick = walk;
 $("demo").onclick = demo;
+function flashChanged(before, after, except = -1) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  after.forEach((v, i) => {
+    if (i === except || JSON.stringify(v) === JSON.stringify(before[i])) return;
+    const chip = $("chips").children[i];
+    chip?.classList.add("voicing-changed");
+    setTimeout(() => chip?.classList.remove("voicing-changed"), 500);
+  });
+}
+function changeVoicingSettings() {
+  const nextType = $("voicing-type").value, nextNeo = $("neo-soul").checked;
+  try {
+    const after = computeVoicings(prog.map(i => map.nodes[i]), { ...settings(), type: nextType, neoSoul: nextNeo });
+    const before = progressionVoicings();
+    stop();
+    voicingType = nextType;
+    neoSoul = nextNeo;
+    render();
+    flashChanged(before, after);
+    status("보이싱 설정을 적용했습니다.");
+  } catch (error) {
+    $("voicing-type").value = voicingType;
+    $("neo-soul").checked = neoSoul;
+    status(`${error.message} 잠금을 해제한 뒤 설정을 바꿔주세요.`);
+  }
+}
+$("voicing-type").onchange = changeVoicingSettings;
+$("neo-soul").onchange = changeVoicingSettings;
+$("voicing-lock").onclick = run(() => {
+  if (selectedChord < 0) return;
+  const before = progressionVoicings();
+  const nextLocks = { ...locks };
+  if (nextLocks[selectedChord]) delete nextLocks[selectedChord];
+  else nextLocks[selectedChord] = structuredClone(before[selectedChord]);
+  const after = computeVoicings(prog.map(i => map.nodes[i]), { ...settings(), locks: nextLocks });
+  stop();
+  locks = nextLocks;
+  render();
+  flashChanged(before, after, selectedChord);
+  status(locks[selectedChord] ? "이 코드의 보이싱을 잠갔습니다." : "보이싱 잠금을 해제했습니다.");
+});
+$("voicing-truncate").onclick = () => {
+  if (selectedChord < 0) return;
+  stop();
+  if (replaceProgression(prog.slice(0, selectedChord + 1))) { focus = 0; render(); }
+};
 $("strict").onchange = () => render();
 for (const id of ["tritone", "backdoor", "iiV"]) $(id).onchange = rebuild;
 for (const id of ["bpm", "beats", "timbre", "rhythm"])
@@ -508,8 +582,22 @@ function snapshot() {
   return { ids: prog.map((i) => map.nodes[i].id), settings: settings() };
 }
 function apply(data) {
-  stop();
   const s = data.settings ?? {};
+  const nextMap = buildChordMap(s);
+  const path = data.ids.map(id => nextMap.nodes.findIndex(n => n.id === id));
+  if (path.includes(-1)) throw new Error("현재 맵에서 찾을 수 없는 코드가 포함되어 있어요.");
+  const nextOptions = { ...s, type: s.type ?? "auto", neoSoul: s.neoSoul ?? false, locks: s.locks ?? {} };
+  computeVoicings(path.map(i => nextMap.nodes[i]), nextOptions);
+  stop();
+  voicingType = nextOptions.type;
+  neoSoul = nextOptions.neoSoul;
+  locks = structuredClone(nextOptions.locks);
+  selectedChord = -1;
+  // 기존 혼합 rootless 링크도 읽되 기본 선택 목록은 요청한 일곱 타입이다.
+  if (voicingType === "rootless" && !$("voicing-type").querySelector('[value="rootless"]'))
+    $("voicing-type").add(new Option("루트리스 혼합 · rootless", "rootless"));
+  $("voicing-type").value = voicingType;
+  $("neo-soul").checked = neoSoul;
   rotation = s.rotation ?? 0;
   $("strict").checked = s.strict ?? true;
   if (
@@ -520,13 +608,7 @@ function apply(data) {
   for (const id of ["bpm", "beats", "timbre", "rhythm"])
     if (s[id] !== undefined) $(id).value = s[id];
   for (const id of ["tritone", "backdoor", "iiV"]) $(id).checked = !!s[id];
-  map = buildChordMap(settings());
-  const path = data.ids.map((id) => map.nodes.findIndex((n) => n.id === id));
-  if (path.includes(-1)) {
-    prog = [];
-    draw();
-    throw new Error("현재 맵에서 찾을 수 없는 코드가 포함되어 있어요.");
-  }
+  map = nextMap;
   prog = path;
   focus = 0;
   draw();
@@ -571,7 +653,11 @@ $("share").onclick = run(async () => {
   }
 });
 function progressionVoicings() {
-  return computeVoicings(prog.map(i => map.nodes[i]), settings());
+  const chordNodes = prog.map(i => map.nodes[i]);
+  const key = JSON.stringify([chordNodes.map(n => n.id), voicingType, neoSoul, locks]);
+  if (key !== voicingCache.key)
+    voicingCache = { key, value: computeVoicings(chordNodes, settings()) };
+  return voicingCache.value;
 }
 $("export").onclick = () => {
   const voicings = progressionVoicings();
@@ -608,7 +694,7 @@ $("png").onclick = run(async () => {
   stop();
   status("PNG를 만들고 있습니다.");
   const blob = await exportPNG(svg, {
-    names: prog.map((i) => map.nodes[i].name),
+    names: prog.map((_, i) => chordName(i)),
     caption: $("caption").innerText,
   });
   downloadBlob(blob, "chord-map-1080x1920.png");
@@ -626,7 +712,7 @@ $("midi").onclick = run(async () => {
     onChord(matches) {
       if (demoActive) {
         stop();
-        prog = [];
+        replaceProgression([], true);
         render();
       }
       const candidates = map.nodes.filter((n) =>

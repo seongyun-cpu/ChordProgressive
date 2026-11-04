@@ -2,6 +2,7 @@ import { isValidVoicing } from "./voicing.js";
 
 const STORAGE_KEY = "chord-lab.progressions.v1";
 const MAX_CHORDS = 1024;
+const MAX_LOCK_VOICES = 16;
 
 function validateIds(ids) {
   if (
@@ -19,7 +20,7 @@ function validateIds(ids) {
   }
   return [...ids];
 }
-function validateSettings(settings = {}) {
+function validateSettings(settings = {}, chordCount = MAX_CHORDS) {
   if (!settings || typeof settings !== "object" || Array.isArray(settings))
     throw new Error("진행 설정이 올바르지 않아요.");
   const result = {};
@@ -41,6 +42,7 @@ function validateSettings(settings = {}) {
   for (const [key, values] of [
     ["timbre", ["piano", "pad", "pluck"]],
     ["rhythm", ["block", "arpeggio", "strum"]],
+    ["type", ["auto", "close", "shell", "drop2", "rootlessA", "rootlessB", "rootless", "spread"]],
   ]) {
     if (settings[key] !== undefined) {
       if (!values.includes(settings[key]))
@@ -48,11 +50,26 @@ function validateSettings(settings = {}) {
       result[key] = settings[key];
     }
   }
-  for (const key of ["strict", "tritone", "backdoor", "iiV"]) {
+  for (const key of ["strict", "tritone", "backdoor", "iiV", "neoSoul"]) {
     if (settings[key] !== undefined) {
       if (typeof settings[key] !== "boolean")
         throw new Error("진행 옵션이 올바르지 않아요.");
       result[key] = settings[key];
+    }
+  }
+  if (settings.locks !== undefined) {
+    const locks = settings.locks;
+    if (!locks || typeof locks !== "object" || Array.isArray(locks))
+      throw new Error("보이싱 잠금이 올바르지 않아요.");
+    result.locks = {};
+    for (const [index, voicing] of Object.entries(locks)) {
+      if (!/^(0|[1-9]\d*)$/.test(index) || Number(index) >= chordCount ||
+          !isValidVoicing(voicing) || voicing.upper.length > MAX_LOCK_VOICES ||
+          voicing.upper[0] <= voicing.bass ||
+          voicing.upper.some((note, i) => i > 0 && note <= voicing.upper[i - 1]))
+        throw new Error("보이싱 잠금의 위치와 음을 확인해주세요.");
+      // 저장 결과가 호출자의 잠금 배열과 연결되지 않게 복사한다.
+      result.locks[index] = { bass: voicing.bass, upper: [...voicing.upper] };
     }
   }
   return result;
@@ -60,10 +77,13 @@ function validateSettings(settings = {}) {
 
 // 코드 ID를 각각 인코딩해 샵과 해결 대상을 보존한다.
 export function encodeProgression(ids, settings = {}) {
-  const path = validateIds(ids)
+  const validIds = validateIds(ids);
+  const path = validIds
     .map((id) => encodeURIComponent(id).replaceAll(".", "%2E"))
     .join(".");
-  return `#${path}?s=${encodeURIComponent(JSON.stringify(validateSettings(settings)))}`;
+  const hash = `#${path}?s=${encodeURIComponent(JSON.stringify(validateSettings(settings, validIds.length)))}`;
+  if (hash.length > 150000) throw new Error("공유 링크에 담을 진행이 너무 커요.");
+  return hash;
 }
 export function decodeProgression(hash) {
   if (typeof hash !== "string" || hash.length > 150000)
@@ -74,7 +94,8 @@ export function decodeProgression(hash) {
     const params = new URLSearchParams(query);
     const ids = path ? path.split(".").map(decodeURIComponent) : [];
     const settings = params.has("s") ? JSON.parse(params.get("s")) : {};
-    return { ids: validateIds(ids), settings: validateSettings(settings) };
+    const validIds = validateIds(ids);
+    return { ids: validIds, settings: validateSettings(settings, validIds.length) };
   } catch {
     throw new Error("공유 링크가 손상되었거나 지원하지 않는 형식이에요.");
   }
@@ -96,11 +117,12 @@ export function listProgressions(storage = globalThis.localStorage) {
         !Number.isFinite(entry.updatedAt)
       )
         throw new Error();
+      const ids = validateIds(entry.ids);
       return {
         id: entry.id,
         name: entry.name,
-        ids: validateIds(entry.ids),
-        settings: validateSettings(entry.settings),
+        ids,
+        settings: validateSettings(entry.settings, ids.length),
         updatedAt: entry.updatedAt,
       };
     });
@@ -136,7 +158,7 @@ export function saveProgression(
     id: globalThis.crypto.randomUUID(),
     name: name.trim(),
     ids: validIds,
-    settings: validateSettings(settings),
+    settings: validateSettings(settings, validIds.length),
     updatedAt: Date.now(),
   };
   writeEntries([entry, ...entries], storage);

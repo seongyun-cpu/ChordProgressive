@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildChordMap, voiceLead } from "./theory.js";
 
-import { computeVoicings, displayName, voicingTransitionCost, voicingClusterCost } from "./voicing.js";
+import { computeVoicings, displayName, voicingTransitionCost, voicingClusterCost, voicingRegisterCost } from "./voicing.js";
 
 const map = buildChordMap();
 const ids = ["C", "E7>Am", "Am", "D7>G", "G", "B7>Em", "Em"];
@@ -59,7 +59,7 @@ describe("타입별 보이싱", () => {
   });
   it("Cmaj7 drop2는 G3 C4 E4 B4이다", () => {
     expect(computeVoicings([c], { type: "drop2" })[0])
-      .toEqual({ bass: 36, upper: [52, 60, 67] });
+      .toEqual({ bass: 36, upper: [55, 64, 72] });
     expect(displayName(c, { type: "drop2" })).toBe("C");
     expect(computeVoicings([chord(0, "maj7")], { type: "drop2" })[0].upper)
       .toEqual([55, 60, 64, 71]);
@@ -68,12 +68,12 @@ describe("타입별 보이싱", () => {
     expect(computeVoicings([c], { type: "rootlessA", neoSoul: true })[0])
       .toEqual({ bass: 36, upper: [64, 67, 71, 74] });
     expect(computeVoicings([chord(0, "maj9")], { type: "rootlessB" })[0])
-      .toEqual({ bass: 36, upper: [71, 74, 76, 79] });
+      .toEqual({ bass: 36, upper: [59, 62, 64, 67] });
   });
   it("close, shell, spread가 서로 다른 배치를 만든다", () => {
     expect(computeVoicings([c], { type: "close" })[0].upper).toEqual([60, 64, 67]);
     expect(computeVoicings([c], { type: "shell" })[0].upper).toEqual([60, 64, 67]);
-    expect(computeVoicings([c], { type: "spread" })[0].upper).toEqual([60, 64, 79]);
+    expect(computeVoicings([c], { type: "spread" })[0].upper).toEqual([55, 60, 76]);
     const extended = computeVoicings([c], { type: "close", neoSoul: true })[0].upper;
     expect(extended.at(-1) - extended[0]).toBeLessThan(12);
   });
@@ -130,10 +130,10 @@ describe("연주 시에만 적용하는 확장음", () => {
 
 describe("진행 전체 최적화와 잠금", () => {
   it("미래 잠금에 따라 첫 코드부터 바뀌며 잠금 객체를 공유하지 않는다", () => {
-    const locked = { bass: 36, upper: [76, 79, 83, 86] };
+    const locked = { bass: 36, upper: [64, 67, 71, 74] };
     const result = computeVoicings([c, c], { neoSoul: true, locks: { 1: locked } });
     expect(result[1]).toEqual(locked);
-    expect(result[0]).toEqual(locked); // 전체 비용 0: 탐욕적으로 첫 코드를 먼저 고르면 실패한다.
+    expect(result[0]).toEqual(locked); // 미래 잠금이 초기 선택에도 영향을 준다.
     expect(result[1]).not.toBe(locked);
     expect(result[1].upper).not.toBe(locked.upper);
     expect(computeVoicings([c, c], { neoSoul: true })[0]).not.toEqual(locked);
@@ -213,7 +213,11 @@ describe("화성과 타입·잠금 분리 회귀", () => {
     const fixed = computeVoicings([c], { type })[0];
     const high = { bass: fixed.bass, upper: type === "spread" ? [64, 67, 84] : fixed.upper.map(n => n + 12) };
     const result = computeVoicings([c, c, c], { type, locks: { 2: high } });
-    expect(result).toEqual([high, high, high]); // 전 구간 이동 비용 0
+    expect(result[2]).toEqual(high);
+    const pathCost = path => path.reduce((sum, v, i) => sum + voicingRegisterCost(v) +
+      voicingClusterCost(v) + (i ? voicingTransitionCost(path[i - 1], v) : 0), 0);
+    // 음역 벌점을 포함한 전체 비용이 같은 첫 보이싱을 고집할 때보다 작다.
+    expect(pathCost(result)).toBeLessThan(pathCost([fixed, fixed, high]));
     expect(result[0]).not.toEqual(fixed);
   });
   it("drop2의 C는 3음만 포함하고 명시적 Cmaj7만 7음을 유지한다", () => {
@@ -224,7 +228,7 @@ describe("화성과 타입·잠금 분리 회귀", () => {
 });
 
 describe("선율과 뭉침 최적화", () => {
-  it.each(types)("%s: 예시 진행의 최상성부 이동 대부분이 4반음 이하이다", type => {
+  it.each(types.filter(type => !["rootlessA", "rootlessB"].includes(type)))("%s: 예시 진행의 최상성부 이동 대부분이 4반음 이하이다", type => {
     for (const neoSoul of [false, true]) {
       const result = computeVoicings(nodes, { type, neoSoul });
       const leaps = result.slice(1).map((v, i) => Math.abs(v.upper.at(-1) - result[i].upper.at(-1)));
@@ -259,5 +263,51 @@ describe("선율과 뭉침 최적화", () => {
     const bottoms = result.map((v, i) => (v.upper[0] - iiVI[i].rootPc + 120) % 12);
     expect(bottoms.every((n, i) => [i === 0 ? 3 : 4, i === 2 ? 11 : 10].includes(n))).toBe(true);
     expect(new Set(bottoms.map((n, i) => n === (i === 0 ? 3 : 4) ? "A" : "B")).size).toBe(2);
+  });
+});
+
+
+describe("음역과 고정 루트리스 순서", () => {
+  it("평균 60~67 밖의 거리에 비례하고 C6 초과에 큰 벌점을 준다", () => {
+    expect(voicingRegisterCost({ upper: [60, 64, 67] })).toBe(0);
+    expect(voicingRegisterCost({ upper: [56, 59, 62] })).toBe(2);
+    expect(voicingRegisterCost({ upper: [65, 68, 71] })).toBe(2);
+    expect(voicingRegisterCost({ upper: [56, 64, 84] })).toBe(2);
+    expect(voicingRegisterCost({ upper: [55, 64, 85] })).toBe(142);
+  });
+  it.each(["rootlessA", "rootlessB", "rootless"])("%s 결과는 모든 조와 확장음 설정에서 C6 이하에 머문다", type => {
+    for (const neoSoul of [false, true]) {
+      for (let transpose = 0; transpose < 12; transpose++) {
+        const progression = nodes.map(node => ({ ...node, rootPc: (node.rootPc + transpose) % 12 }));
+        const result = computeVoicings(progression, { type, neoSoul });
+        for (const voicing of result) expect(voicing.upper.at(-1)).toBeLessThanOrEqual(84);
+      }
+      for (const voicing of computeVoicings(map.nodes, { type, neoSoul }))
+        expect(voicing.upper.at(-1)).toBeLessThanOrEqual(84);
+    }
+  });
+  it.each([["rootlessA", [4, 7, 11, 2], [3, 4, 3]], ["rootlessB", [11, 2, 4, 7], [3, 2, 3]]])(
+    "%s는 Cmaj9의 성부 순서와 간격을 유지하고 전체 옥타브만 옮긴다", (type, order, gaps) => {
+      for (const neoSoul of [false, true]) {
+        for (let transpose = 0; transpose < 12; transpose++) {
+          const progression = [chord(7, "dom7", "G7"), { ...c, rootPc: transpose }, chord(9, "min", "Am")];
+          const upper = computeVoicings(progression, { type, neoSoul })[1].upper;
+          expect(upper.map(n => (n - transpose + 120) % 12)).toEqual(order);
+          expect(upper.slice(1).map((n, i) => n - upper[i])).toEqual(gaps);
+        }
+      }
+    },
+  );
+  it.each(["rootlessA", "rootlessB", "rootless"])("%s는 neoSoul:false여도 단조행 dom7에 b9를 쓴다", type => {
+    const e = chord(4, "dom7", "E7"), a = chord(9, "min", "Am");
+    expect(displayName(e, { type }, a)).toBe("E7(b9)");
+    const result = computeVoicings([e, a], { type });
+    expect(pitchClasses(result[0])).toContain(5);
+    expect(pitchClasses(result[0])).not.toContain(6);
+    expect(e.kind).toBe("dom7");
+  });
+  it("음역 벌점은 명시적인 높은 잠금 음을 바꾸지 않는다", () => {
+    const locked = { bass: 36, upper: [76, 79, 83, 86] };
+    expect(computeVoicings([c], { type: "rootlessA", neoSoul: true, locks: { 0: locked } })[0]).toEqual(locked);
   });
 });

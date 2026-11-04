@@ -231,3 +231,65 @@ describe("재생과 MIDI의 공통 보이싱", () => {
     expect(computeVoicings(nodes).at(-1)).toEqual({ bass: 40, upper: [59, 64, 67] });
   });
 });
+
+describe("보이싱 설정 저장·공유", () => {
+  const ids = ["C", "E7>Am", "Am"];
+  const settings = {
+    type: "rootlessA",
+    neoSoul: true,
+    locks: { 0: { bass: 36, upper: [64, 67, 71, 74] } },
+  };
+  it("타입·확장음·잠금을 URL과 저장 목록에서 왕복한다", () => {
+    expect(decodeProgression(encodeProgression(ids, settings))).toEqual({ ids, settings });
+    const storage = memoryStorage();
+    const entry = saveProgression("보이싱", ids, settings, storage);
+    expect(listProgressions(storage)[0]).toEqual(entry);
+    expect(entry.settings).toEqual(settings);
+    expect(entry.settings.locks[0].upper).not.toBe(settings.locks[0].upper);
+    entry.settings.locks[0].upper[0] = 65;
+    expect(listProgressions(storage)[0].settings).toEqual(settings);
+  });
+  it.each(["auto", "close", "shell", "drop2", "rootlessA", "rootlessB", "rootless", "spread"])("%s 타입을 보존한다", type => {
+    const options = { type, neoSoul: false, locks: {} };
+    expect(decodeProgression(encodeProgression(ids, options)).settings).toEqual(options);
+  });
+  it("선택 필드가 없는 기존 링크·저장 데이터에 기본값을 강제로 추가하지 않는다", () => {
+    expect(decodeProgression("#C.E7%3EAm.Am")).toEqual({ ids, settings: {} });
+    expect(decodeProgression(encodeProgression(ids, { bpm: 100 })).settings).toEqual({ bpm: 100 });
+    const storage = memoryStorage();
+    const entry = saveProgression("기존", ids, {}, storage);
+    expect(listProgressions(storage)[0]).toEqual(entry);
+    expect(entry.settings).toEqual({});
+  });
+  it.each([
+    { type: "unknown" },
+    { neoSoul: "true" },
+    { locks: null },
+    { locks: [] },
+    { locks: { "-1": { bass: 36, upper: [60] } } },
+    { locks: { "01": { bass: 36, upper: [60] } } },
+    { locks: { "1.5": { bass: 36, upper: [60] } } },
+    { locks: { 3: { bass: 36, upper: [60] } } },
+    { locks: { 0: { bass: -1, upper: [60] } } },
+    { locks: { 0: { bass: 36, upper: [128] } } },
+    { locks: { 0: { bass: 36, upper: [60.5] } } },
+    { locks: { 0: { bass: 36, upper: [] } } },
+    { locks: { 0: { bass: 36, upper: [60, 60] } } },
+    { locks: { 0: { bass: 36, upper: [64, 60] } } },
+    { locks: { 0: { bass: 60, upper: [36] } } },
+    { locks: { 0: { bass: 36, upper: Array.from({ length: 17 }, (_, i) => 60 + i) } } },
+  ])("잘못된 선택 설정 %j를 저장과 공유 양쪽에서 거절한다", invalid => {
+    expect(() => encodeProgression(ids, invalid)).toThrow();
+    expect(() => decodeProgression(`#C.E7%3EAm.Am?s=${encodeURIComponent(JSON.stringify(invalid))}`)).toThrow("공유 링크");
+    expect(() => saveProgression("손상", ids, invalid, memoryStorage())).toThrow();
+    const storage = memoryStorage();
+    storage.setItem("chord-lab.progressions.v1", JSON.stringify([
+      { id: "bad", name: "손상", ids, settings: invalid, updatedAt: 1 },
+    ]));
+    expect(() => listProgressions(storage)).toThrow("저장 목록");
+  });
+  it("빈 진행에는 잠금을 붙일 수 없다", () => {
+    expect(() => encodeProgression([], settings)).toThrow();
+    expect(decodeProgression(encodeProgression([], { locks: {} })).settings).toEqual({ locks: {} });
+  });
+});

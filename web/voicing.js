@@ -38,7 +38,7 @@ function harmony(node, options, nextNode) {
     intervals = [0, 3, 7, 10, 14];
     suffix = "m9";
   } else if (dominant && (options.neoSoul || rootless(options.type) || node.kind === "dom13")) {
-    if (options.neoSoul && nextNode?.kind.startsWith("min")) {
+    if ((options.neoSoul || rootless(options.type)) && nextNode?.kind.startsWith("min")) {
       intervals = [0, 4, 7, 10, 13];
       suffix = "7(b9)";
     } else if ((options.neoSoul && nextNode?.kind.startsWith("maj")) || node.kind === "dom13") {
@@ -99,8 +99,7 @@ function shape(node, harmonic, type, inversion) {
   if (rootless(type)) {
     const anchor = type === "rootlessB" ? harmonic.guides.at(-1) : harmonic.intervals[1];
     upper = upper.map(n => n < anchor ? n + 12 : n).sort((a, b) => a - b);
-    // 최저음은 유지하고 그 위 성부를 옥타브 전위하여 선율 후보를 넓힌다.
-    upper = upper.map((n, i) => n + (i > 0 && i <= inversion ? 12 : 0)).sort((a, b) => a - b);
+    // A는 3·5·7·9, B는 7·9·3·5 순서를 유지한다. 전체 옥타브 이동만 허용한다.
   } else {
     // 밀집 배치의 전위를 먼저 만든 뒤 타입별 변환을 적용한다.
     upper = upper.map((n, i) => n + (i < inversion ? 12 : 0)).sort((a, b) => a - b);
@@ -123,7 +122,7 @@ function candidates(node, harmonic, type) {
     type === "rootless" ? ["rootlessA", "rootlessB"] : [type];
   for (const form of shapes) {
     // A/B의 최저음 성격은 고정하고 rootless는 두 전위를 함께 탐색한다.
-    const inversions = rootless(form) ? harmonic.intervals.length - 2 : harmonic.intervals.length;
+    const inversions = rootless(form) ? 1 : harmonic.intervals.length;
     for (let inversion = 0; inversion < inversions; inversion++) {
       const base = shape(node, harmonic, form, inversion);
       for (const shift of [0, -12, 12, -24]) {
@@ -153,6 +152,18 @@ export function voicingClusterCost(voicing) {
   return cost;
 }
 
+/** 평균은 C4~G4에 가깝게, C6보다 높은 최상성부는 강하게 억제한다. */
+export function voicingRegisterCost(voicing) {
+  const mean = voicing.upper.reduce((sum, note) => sum + note, 0) / voicing.upper.length;
+  const distance = Math.max(60 - mean, 0, mean - 67);
+  const aboveC6 = Math.max(0, voicing.upper.at(-1) - 84);
+  return distance * 2 + (aboveC6 ? 100 + aboveC6 * 40 : 0);
+}
+
+function placementCost(voicing) {
+  return voicingClusterCost(voicing) + voicingRegisterCost(voicing);
+}
+
 /** 아래에서 위 순서의 성부 이동 비용. 음 개수가 다르면 끝 성부를 대응시킨다. */
 export function voicingTransitionCost(from, to) {
   let cost = Math.abs(from.bass - to.bass);
@@ -170,14 +181,14 @@ export function voicingTransitionCost(from, to) {
 
 function optimize(layers) {
   if (!layers.length) return [];
-  let costs = layers[0].map(voicingClusterCost);
+  let costs = layers[0].map(placementCost);
   const parents = [];
   for (let index = 1; index < layers.length; index++) {
     const parent = [];
     const nextCosts = layers[index].map((current, j) => {
       let best = Infinity;
       layers[index - 1].forEach((previous, i) => {
-        const cost = costs[i] + voicingTransitionCost(previous, current) + voicingClusterCost(current);
+        const cost = costs[i] + voicingTransitionCost(previous, current) + placementCost(current);
         if (cost < best) { best = cost; parent[j] = i; }
       });
       return best;
