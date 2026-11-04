@@ -201,16 +201,31 @@ describe("보이싱·음 집합 인식", () => {
 });
 
 describe("시작 코드", () => {
-  it("바깥 원과 가운데 원의 모든 7코드를 허용한다", () => {
-    expect(map.nodes.filter(canStartChord)).toHaveLength(48);
-    for (const node of map.nodes.filter(n => n.ring === "dom")) {
+  it("기본 맵의 모든 코드를 시작점으로 허용한다", () => {
+    expect(map.nodes.filter(canStartChord)).toHaveLength(60);
+    for (const node of map.nodes.filter((n) => n.ring === "dom")) {
       expect(canStartChord(node)).toBe(true);
-      expect(nextOptions(map, node.idx).some(e => e.to === node.target)).toBe(true);
+      expect(nextOptions(map, node.idx).some((e) => e.to === node.target)).toBe(
+        true,
+      );
     }
   });
-  it("추가 도미넌트7도 허용하고 감7의 기존 제한은 유지한다", () => {
-    const extended = buildChordMap({tritone:true, backdoor:true});
-    expect(extended.nodes.filter(n => n.kind === "dom7").every(canStartChord)).toBe(true);
-    expect(extended.nodes.filter(n => n.kind === "dim7").some(canStartChord)).toBe(false);
+  it("추가 도미넌트7과 감7도 시작할 수 있다", () => {
+    const extended = buildChordMap({ tritone: true, backdoor: true });
+    expect(
+      extended.nodes.filter((n) => n.kind === "dom7").every(canStartChord),
+    ).toBe(true);
+    expect(
+      extended.nodes.filter((n) => n.kind === "dim7").every(canStartChord),
+    ).toBe(true);
   });
+});
+
+it("모든 감7 시작점에서 화살표를 따라 바깥 원으로 해결한다", () => {
+  for (const node of map.nodes.filter((n) => n.kind === "dim7")) {
+    expect(canStartChord(node)).toBe(true);
+    const targets = nextOptions(map, node.idx);
+    expect(targets.length).toBeGreaterThan(0);
+    expect(targets.every((e) => map.nodes[e.to].ring === "outer")).toBe(true);
+  }
 });

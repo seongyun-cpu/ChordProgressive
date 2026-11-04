@@ -6,6 +6,7 @@ import {
   randomWalk,
   chordDescription,
 } from "./theory.js";
+import { mountDeer } from "./deer.js";
 import { AudioEngine } from "./audio.js";
 import {
   encodeProgression,
@@ -199,14 +200,22 @@ function draw() {
     };
     return g;
   });
-  el(
-    "text",
-    { x: 0, y: 4, "text-anchor": "middle", fill: "#ccc", "font-size": 22 },
-    svg,
-  ).textContent = "+";
+  mountDeer(svg);
   render();
 }
+let auditionUntil = 0,
+  deerTimer;
+function updateDeer() {
+  const deer = svg.querySelector(".deer");
+  if (!deer) return;
+  deer.classList.toggle(
+    "running",
+    playing || demoActive || performance.now() < auditionUntil,
+  );
+  deer.style.setProperty("--gait", `${60 / settings().bpm}s`);
+}
 function render(animate = false) {
+  updateDeer();
   const options = opts(),
     last = prog.at(-1),
     end = playing || demoActive ? playIdx : prog.length - 1,
@@ -289,7 +298,7 @@ function render(animate = false) {
   small.textContent = demoActive
     ? "시작 데모 · 코드를 누르면 바로 만들 수 있어요"
     : last === undefined
-      ? "장조·단조 또는 가운데 원의 7코드를 골라주세요"
+      ? "장조·단조·7코드·감7 중 원하는 코드를 골라주세요"
       : `다음 후보: ${options.map((e) => map.nodes[e.to].name).join(" · ")}`;
   $("caption").append(strong, small);
   $("candidates").replaceChildren();
@@ -303,6 +312,8 @@ function render(animate = false) {
   $("play").textContent = playing ? "■ 정지" : "▶ 재생";
 }
 function stop() {
+  auditionUntil = 0;
+  clearTimeout(deerTimer);
   engine.stop();
   cancelAnimationFrame(demoFrame);
   demoActive = false;
@@ -328,6 +339,9 @@ function pick(idx) {
   let v = null;
   for (const i of prog) v = voiceLead(v, map.nodes[i]);
   prog.push(idx);
+  auditionUntil = performance.now() + 850;
+  clearTimeout(deerTimer);
+  deerTimer = setTimeout(updateDeer, 870);
   focus = 0;
   render();
   engine
@@ -431,7 +445,10 @@ function cycle(d) {
   if (opts().length) focus = (focus + d + opts().length) % opts().length;
   else {
     const starts = map.nodes.filter(canStartChord);
-    const current = Math.max(0, starts.findIndex(n => n.idx === startSlot));
+    const current = Math.max(
+      0,
+      starts.findIndex((n) => n.idx === startSlot),
+    );
     startSlot = starts[(current + d + starts.length) % starts.length].idx;
   }
   render();

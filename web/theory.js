@@ -300,7 +300,7 @@ export function chordDescription(node, map) {
   return `${node.name} = ${tones.join(" · ")} | ${role}`;
 }
 
-// 바깥 원의 3화음과 도미넌트7은 시작점으로 선택한다.
+// 기본 맵의 3화음·도미넌트7·감7을 시작점으로 선택한다.
 export function canStartChord(node) {
-  return node.ring === "outer" || node.kind === "dom7";
+  return node.ring === "outer" || node.kind === "dom7" || node.kind === "dim7";
 }
