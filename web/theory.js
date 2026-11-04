@@ -299,3 +299,8 @@ export function chordDescription(node, map) {
   } else role = node.kind === "maj" ? "장3화음" : "단3화음";
   return `${node.name} = ${tones.join(" · ")} | ${role}`;
 }
+
+// 바깥 원의 3화음과 도미넌트7은 시작점으로 선택한다.
+export function canStartChord(node) {
+  return node.ring === "outer" || node.kind === "dom7";
+}

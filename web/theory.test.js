@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildChordMap,
+  canStartChord,
   nextOptions,
   randomWalk,
   chordMidi,
@@ -196,5 +197,20 @@ describe("보이싱·음 집합 인식", () => {
     expect(chordDescription(find("tritone:Db7>C", graph), graph)).toBe(
       "Db7 = Db · F · Ab · Cb | C으로 가는 트라이톤 대리 V7",
     );
+  });
+});
+
+describe("시작 코드", () => {
+  it("바깥 원과 가운데 원의 모든 7코드를 허용한다", () => {
+    expect(map.nodes.filter(canStartChord)).toHaveLength(48);
+    for (const node of map.nodes.filter(n => n.ring === "dom")) {
+      expect(canStartChord(node)).toBe(true);
+      expect(nextOptions(map, node.idx).some(e => e.to === node.target)).toBe(true);
+    }
+  });
+  it("추가 도미넌트7도 허용하고 감7의 기존 제한은 유지한다", () => {
+    const extended = buildChordMap({tritone:true, backdoor:true});
+    expect(extended.nodes.filter(n => n.kind === "dom7").every(canStartChord)).toBe(true);
+    expect(extended.nodes.filter(n => n.kind === "dim7").some(canStartChord)).toBe(false);
   });
 });

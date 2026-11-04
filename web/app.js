@@ -1,5 +1,6 @@
 import {
   buildChordMap,
+  canStartChord,
   nextOptions,
   voiceLead,
   randomWalk,
@@ -288,7 +289,7 @@ function render(animate = false) {
   small.textContent = demoActive
     ? "시작 데모 · 코드를 누르면 바로 만들 수 있어요"
     : last === undefined
-      ? "바깥 원의 장조 또는 단조를 골라주세요"
+      ? "장조·단조 또는 가운데 원의 7코드를 골라주세요"
       : `다음 후보: ${options.map((e) => map.nodes[e.to].name).join(" · ")}`;
   $("caption").append(strong, small);
   $("candidates").replaceChildren();
@@ -317,7 +318,7 @@ function pick(idx) {
   if (
     $("strict").checked &&
     ((prog.length && !opts().some((e) => e.to === idx)) ||
-      (!prog.length && map.nodes[idx].ring !== "outer"))
+      (!prog.length && !canStartChord(map.nodes[idx])))
   ) {
     status(
       "화살표로 연결된 후보를 선택하세요. 자유롭게 고르려면 화살표만 허용을 꺼주세요.",
@@ -428,7 +429,11 @@ function cycle(d) {
     prog = [];
   }
   if (opts().length) focus = (focus + d + opts().length) % opts().length;
-  else startSlot = (startSlot + d + 24) % 24;
+  else {
+    const starts = map.nodes.filter(canStartChord);
+    const current = Math.max(0, starts.findIndex(n => n.idx === startSlot));
+    startSlot = starts[(current + d + starts.length) % starts.length].idx;
+  }
   render();
 }
 function focused() {
@@ -630,7 +635,7 @@ $("midi").onclick = run(async () => {
         (n) =>
           !$("strict").checked ||
           (!prog.length
-            ? n.ring === "outer"
+            ? canStartChord(n)
             : opts().some((e) => e.to === n.idx)),
       );
       if (!allowed.length) {
@@ -737,4 +742,3 @@ try {
   status(e.message);
 }
 if (location.hash) fromHash();
-else if (!matchMedia("(prefers-reduced-motion: reduce)").matches) demo();
