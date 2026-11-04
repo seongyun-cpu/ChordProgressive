@@ -1,0 +1,217 @@
+import { voiceLead, midiToFreq } from "./theory.js";
+
+export const LOOKAHEAD_MS = 25;
+export const SCHEDULE_AHEAD = 0.1;
+
+// 박자 위치는 오디오 시계의 절대 시간으로 계산한다.
+export function scheduleWindow(
+  start,
+  duration,
+  cursor,
+  length,
+  now,
+  loop = false,
+) {
+  const events = [];
+  let next = cursor;
+  if (!(duration > 0) || !length) return { events, cursor: next };
+  // 탭이 오래 숨겨져도 지난 소리를 한꺼번에 재생하지 않는다.
+  next = Math.max(next, Math.floor(Math.max(0, now - start) / duration));
+  while (
+    (loop || next < length) &&
+    start + next * duration < now + SCHEDULE_AHEAD
+  ) {
+    events.push({
+      index: next % length,
+      time: start + next * duration,
+      ordinal: next,
+    });
+    next++;
+  }
+  return { events, cursor: next };
+}
+
+export function rhythmEvents(notes, duration, rhythm = "block") {
+  return notes.map((midi, index) => {
+    const offset =
+      rhythm === "arpeggio"
+        ? (index * duration) / notes.length
+        : rhythm === "strum"
+          ? index * Math.min(0.045, duration / (notes.length * 3))
+          : 0;
+    return {
+      midi,
+      offset,
+      duration: Math.max(0.001, duration - offset) * 0.94,
+    };
+  });
+}
+
+export class AudioEngine {
+  constructor() {
+    this.context = null;
+    this.sources = new Set();
+    this.generation = 0;
+    this.interval = null;
+    this.frame = null;
+    this.playing = false;
+  }
+
+  async ready() {
+    if (!this.context) {
+      const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
+      if (!Context)
+        throw new Error("이 브라우저는 Web Audio를 지원하지 않아요.");
+      this.context = new Context();
+      this.master = this.context.createDynamicsCompressor();
+      this.master.connect(this.context.destination);
+    }
+    if (this.context.state === "suspended") await this.context.resume();
+    return this.context;
+  }
+
+  note(midi, time, duration, timbre, gain = 0.075) {
+    const ac = this.context;
+    const oscillator = ac.createOscillator();
+    const envelope = ac.createGain();
+    oscillator.type =
+      timbre === "pad" ? "sine" : timbre === "pluck" ? "triangle" : "triangle";
+    oscillator.frequency.value = midiToFreq(midi);
+    const attack = Math.min(timbre === "pad" ? 0.16 : 0.012, duration * 0.2);
+    const sustain = timbre === "pad" ? 0.7 : timbre === "pluck" ? 0.08 : 0.3;
+    envelope.gain.setValueAtTime(0.0001, time);
+    envelope.gain.exponentialRampToValueAtTime(gain, time + attack);
+    envelope.gain.exponentialRampToValueAtTime(
+      gain * sustain,
+      time + duration * 0.65,
+    );
+    envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+    oscillator.connect(envelope).connect(this.master);
+    this.sources.add(oscillator);
+    oscillator.onended = () => {
+      this.sources.delete(oscillator);
+      oscillator.disconnect();
+      envelope.disconnect();
+    };
+    oscillator.start(time);
+    oscillator.stop(time + duration + 0.02);
+  }
+
+  chord(notes, node, time, duration, timbre, rhythm) {
+    for (const event of rhythmEvents(notes, duration, rhythm)) {
+      this.note(event.midi, time + event.offset, event.duration, timbre);
+    }
+    this.note(36 + node.rootPc, time, duration * 0.94, "pad", 0.09);
+  }
+
+  async audition(node, previousVoicing = null, settings = {}) {
+    this.stop();
+    const generation = this.generation;
+    const ac = await this.ready();
+    if (generation !== this.generation) return null;
+    const notes = voiceLead(previousVoicing, node);
+    this.chord(
+      notes,
+      node,
+      ac.currentTime + 0.01,
+      0.85,
+      settings.timbre || "piano",
+      settings.rhythm || "block",
+    );
+    return notes;
+  }
+
+  async start({
+    path,
+    nodes,
+    bpm = 90,
+    beats = 2,
+    timbre = "piano",
+    rhythm = "block",
+    loop = false,
+    onStep = () => {},
+    onEnd = () => {},
+  }) {
+    this.stop();
+    const generation = this.generation;
+    const snapshot = path.map((index) => ({ ...nodes[index] }));
+    if (!snapshot.length) return;
+    if (snapshot.some((node) => !node.kind))
+      throw new Error("진행에 없는 코드가 있어요.");
+    const tempo = Number.isFinite(+bpm)
+      ? Math.max(40, Math.min(200, +bpm))
+      : 90;
+    const beatCount = Number.isFinite(+beats)
+      ? Math.max(0.25, Math.min(16, +beats))
+      : 2;
+    const duration = (60 / tempo) * beatCount;
+    const ac = await this.ready();
+    if (generation !== this.generation) return;
+    const start = ac.currentTime + 0.04;
+    let previous = null;
+    const voicings = snapshot.map(
+      (node) => (previous = voiceLead(previous, node)),
+    );
+    let cursor = 0;
+    let shown = -1;
+    this.playing = true;
+    const pump = () => {
+      if (generation !== this.generation) return;
+      const result = scheduleWindow(
+        start,
+        duration,
+        cursor,
+        snapshot.length,
+        ac.currentTime,
+        loop,
+      );
+      cursor = result.cursor;
+      for (const event of result.events) {
+        // 지연된 탭이 돌아오면 현재 코드부터 재개한다.
+        const remaining = event.time + duration - ac.currentTime;
+        if (remaining > 0.03)
+          this.chord(
+            voicings[event.index],
+            snapshot[event.index],
+            Math.max(ac.currentTime, event.time),
+            Math.min(duration, remaining),
+            timbre,
+            rhythm,
+          );
+      }
+    };
+    const draw = () => {
+      if (generation !== this.generation) return;
+      const ordinal = Math.floor((ac.currentTime - start) / duration);
+      if (!loop && ordinal >= snapshot.length) {
+        this.stop();
+        onEnd();
+        return;
+      }
+      if (ordinal >= 0 && ordinal !== shown) {
+        shown = ordinal;
+        onStep(ordinal % snapshot.length, duration);
+      }
+      this.frame = requestAnimationFrame(draw);
+    };
+    pump();
+    this.interval = setInterval(pump, LOOKAHEAD_MS);
+    this.frame = requestAnimationFrame(draw);
+  }
+
+  stop() {
+    this.generation++;
+    this.playing = false;
+    clearInterval(this.interval);
+    if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.interval = this.frame = null;
+    for (const source of this.sources) {
+      try {
+        source.stop();
+      } catch {
+        /* 이미 끝난 소리 */
+      }
+    }
+    this.sources.clear();
+  }
+}

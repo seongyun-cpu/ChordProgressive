@@ -1,0 +1,355 @@
+:root {
+  --ink: #111;
+  --muted: #666;
+  --fill: #c9c9c9;
+  --accent: #ffb000;
+  font-family: "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  color: var(--ink);
+  background: #fff;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: radial-gradient(#e8e8e8 0.9px, transparent 1px) 0 0/22px 22px;
+}
+main {
+  max-width: 800px;
+  margin: auto;
+  padding: 40px 24px;
+}
+h1 {
+  font-size: clamp(32px, 6vw, 54px);
+  line-height: 1.18;
+  letter-spacing: -0.05em;
+  font-weight: 900;
+  margin: 0;
+}
+.sub {
+  color: var(--muted);
+  margin: 14px 0;
+  font-size: 16px;
+}
+hr {
+  width: 100px;
+  margin: 22px 0 0;
+  border: 0;
+  border-top: 4px solid;
+}
+.map-wrap {
+  max-width: 740px;
+  margin: 0 auto;
+  overflow: auto;
+}
+#map {
+  display: block;
+  width: 100%;
+  user-select: none;
+  touch-action: pan-x pan-y;
+}
+.node {
+  cursor: pointer;
+}
+.node text {
+  font-size: 15px;
+  font-weight: 750;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  fill: #666;
+}
+.node .shape {
+  fill: #fff;
+  stroke: #aaa;
+  stroke-width: 1.8;
+}
+.node.maj .shape {
+  fill: #bcbcbc;
+  stroke: #bcbcbc;
+}
+.node.maj text {
+  fill: #fff;
+}
+.node.dim7 .shape {
+  stroke-dasharray: 4 3;
+}
+.node .halo {
+  fill: none;
+  stroke: #111;
+  stroke-width: 1.8;
+  opacity: 0;
+}
+.node .hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+.node.current .halo {
+  opacity: 1;
+}
+.node.option .shape {
+  stroke: #111;
+  stroke-width: 2.5;
+}
+.node.focus .shape,
+.node:focus .shape {
+  stroke-width: 4;
+}
+.node.used .shape {
+  fill: #111;
+  stroke: #111;
+}
+.node.used text {
+  fill: #fff;
+}
+.node.playing .shape {
+  stroke: var(--accent);
+  stroke-width: 4;
+}
+.node:focus {
+  outline: none;
+}
+.edge {
+  fill: none;
+  stroke: #ccc;
+  stroke-width: 1.1;
+  pointer-events: none;
+}
+.edge.ring {
+  stroke-dasharray: 6 4;
+  stroke: #b6b6b6;
+}
+.edge.passing {
+  stroke-dasharray: 2 4;
+  stroke: #999;
+}
+.edge.option {
+  stroke: #666;
+  stroke-width: 1.8;
+}
+.edge.used {
+  stroke: #111;
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+.edge.hidden {
+  display: none;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px 0 20px;
+  min-height: 45px;
+}
+.chip {
+  font-size: 21px;
+  font-weight: 800;
+  min-width: 46px;
+}
+.chip.last {
+  background: #111;
+  color: #fff;
+}
+.chip.playing {
+  border-color: var(--accent);
+}
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+button,
+select,
+input[type="number"],
+input[type="text"],
+#save-name {
+  border: 1px solid #aaa;
+  background: #fff;
+  border-radius: 7px;
+  padding: 10px 12px;
+  min-height: 42px;
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  border-color: #111;
+  background: #f2f2f2;
+}
+button.primary,
+button[aria-pressed="true"] {
+  background: #111;
+  color: white;
+}
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 3px solid #777;
+  outline-offset: 3px;
+}
+input[type="number"] {
+  width: 76px;
+}
+input[type="checkbox"] {
+  accent-color: #111;
+}
+.caption {
+  max-width: 540px;
+  margin: auto;
+  text-align: center;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 9px;
+  padding: 15px;
+  display: grid;
+  gap: 5px;
+}
+.caption strong {
+  font-size: 22px;
+}
+.caption span {
+  font-size: 14px;
+  color: #666;
+}
+.toolbar,
+.controls,
+.candidates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin: 18px 0;
+}
+.candidates button {
+  font-weight: 700;
+}
+.settings {
+  background: #ffffffdc;
+  border-top: 1px solid #ccc;
+  padding: 16px 0;
+}
+.settings summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.controls label,
+fieldset label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+fieldset {
+  border: 0;
+  margin: 10px 0;
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+legend {
+  font-size: 14px;
+  font-weight: 700;
+}
+#legend-text {
+  font-size: 12px;
+  width: 100%;
+  color: #666;
+}
+.keys,
+#status {
+  font-size: 13px;
+  line-height: 1.8;
+  text-align: center;
+  color: #666;
+}
+#status {
+  min-height: 24px;
+}
+#tooltip {
+  position: fixed;
+  max-width: 320px;
+  z-index: 5;
+  background: #111;
+  color: #fff;
+  border-radius: 7px;
+  padding: 12px;
+  font-size: 14px;
+  pointer-events: none;
+}
+body.reels main {
+  width: min(100%, 608px);
+  aspect-ratio: 9/16;
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+}
+body.reels h1 {
+  font-size: clamp(28px, 6vw, 44px);
+}
+body.reels .toolbar,
+body.reels .settings,
+body.reels .keys,
+body.reels #status,
+body.reels .candidates,
+body.reels .sub,
+body.reels hr {
+  display: none;
+}
+body.reels .map-wrap {
+  overflow: visible;
+  width: 100%;
+}
+body.reels #map {
+  min-width: 0;
+}
+body.reels .chips {
+  margin: 0;
+}
+body.reels .chip {
+  font-size: 17px;
+  padding: 6px 9px;
+}
+#exit-reels {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  opacity: 0;
+}
+#exit-reels:hover,
+#exit-reels:focus {
+  opacity: 1;
+}
+@media (max-width: 520px) {
+  main {
+    padding: 26px 14px;
+  }
+  #map {
+    min-width: var(--map-min, 700px);
+  }
+  .map-wrap {
+    margin: 10px -14px;
+  }
+  .caption strong {
+    font-size: 19px;
+  }
+  .controls {
+    justify-content: flex-start;
+  }
+  body.reels .map-wrap {
+    margin: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition: none !important;
+  }
+}
