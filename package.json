@@ -9,7 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "node --check web/app.js && node --check web/theory.js && node --check web/audio.js && node --check web/storage.js && node --check web/midi-input.js && node --check web/deer.js"
+    "check": "node --check web/app.js && node --check web/theory.js && node --check web/audio.js && node --check web/storage.js && node --check web/midi-input.js && node --check web/shortcuts.js"
   },
   "devDependencies": {
     "vite": "^7.0.0",

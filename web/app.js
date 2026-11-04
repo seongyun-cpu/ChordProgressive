@@ -6,7 +6,7 @@ import {
   randomWalk,
   chordDescription,
 } from "./theory.js";
-import { mountDeer } from "./deer.js";
+import { shortcutAction } from "./shortcuts.js";
 import { AudioEngine } from "./audio.js";
 import {
   encodeProgression,
@@ -200,22 +200,9 @@ function draw() {
     };
     return g;
   });
-  mountDeer(svg);
   render();
 }
-let auditionUntil = 0,
-  deerTimer;
-function updateDeer() {
-  const deer = svg.querySelector(".deer");
-  if (!deer) return;
-  deer.classList.toggle(
-    "running",
-    playing || demoActive || performance.now() < auditionUntil,
-  );
-  deer.style.setProperty("--gait", `${60 / settings().bpm}s`);
-}
 function render(animate = false) {
-  updateDeer();
   const options = opts(),
     last = prog.at(-1),
     end = playing || demoActive ? playIdx : prog.length - 1,
@@ -312,8 +299,6 @@ function render(animate = false) {
   $("play").textContent = playing ? "■ 정지" : "▶ 재생";
 }
 function stop() {
-  auditionUntil = 0;
-  clearTimeout(deerTimer);
   engine.stop();
   cancelAnimationFrame(demoFrame);
   demoActive = false;
@@ -339,9 +324,6 @@ function pick(idx) {
   let v = null;
   for (const i of prog) v = voiceLead(v, map.nodes[i]);
   prog.push(idx);
-  auditionUntil = performance.now() + 850;
-  clearTimeout(deerTimer);
-  deerTimer = setTimeout(updateDeer, 870);
   focus = 0;
   render();
   engine
@@ -491,14 +473,15 @@ const endDrag = () => {
 svg.addEventListener("pointerup", endDrag);
 svg.addEventListener("pointercancel", endDrag);
 $("play").onclick = () => void play();
-$("loop").onclick = () => {
+function toggleLoop() {
   const b = $("loop");
   b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
   if (playing) {
     stop();
     void play();
   }
-};
+}
+$("loop").onclick = toggleLoop;
 $("undo").onclick = undo;
 $("clear").onclick = clear;
 $("walk").onclick = walk;
@@ -729,19 +712,27 @@ $("serial").onclick = run(async () => {
   }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    stop();
-    return;
-  }
-  if (e.target.closest("input,select,textarea,button,summary")) return;
-  if (e.key === "ArrowRight") cycle(1);
-  else if (e.key === "ArrowLeft") cycle(-1);
-  else if (e.key === "Enter") focused();
-  else if (e.key === "Backspace") undo();
-  else if (e.code === "Space") void play();
-  else return;
+  const action = shortcutAction(e, {
+    editable:
+      !!e.target.closest("input,select,textarea") || e.target.isContentEditable,
+    interactive: !!e.target.closest("button,summary"),
+  });
+  if (!action) return;
   e.preventDefault();
+  if (e.repeat) return;
+  ({
+    undo,
+    clear,
+    walk,
+    loop: toggleLoop,
+    play: () => void play(),
+    previous: () => cycle(-1),
+    next: () => cycle(1),
+    pick: focused,
+    stop,
+  })[action]();
 });
+
 function fromHash() {
   if (!location.hash) return;
   try {
