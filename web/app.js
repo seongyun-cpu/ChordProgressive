@@ -501,12 +501,6 @@ document.querySelectorAll("[data-edge]").forEach(
 $("legend").onchange = () => {
   $("legend-text").hidden = !$("legend").checked;
 };
-function reels(on) {
-  document.body.classList.toggle("reels", on);
-  $("exit-reels").hidden = !on;
-}
-$("reels").onclick = () => reels(true);
-$("exit-reels").onclick = () => reels(false);
 function snapshot() {
   return { ids: prog.map((i) => map.nodes[i].id), settings: settings() };
 }
@@ -714,7 +708,6 @@ $("serial").onclick = run(async () => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    reels(false);
     stop();
     return;
   }

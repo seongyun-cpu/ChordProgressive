@@ -282,51 +282,6 @@ legend {
   font-size: 14px;
   pointer-events: none;
 }
-body.reels main {
-  width: min(100%, 608px);
-  aspect-ratio: 9/16;
-  padding: 40px 20px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 16px;
-}
-body.reels h1 {
-  font-size: clamp(28px, 6vw, 44px);
-}
-body.reels .toolbar,
-body.reels .settings,
-body.reels .keys,
-body.reels #status,
-body.reels .candidates,
-body.reels .sub,
-body.reels hr {
-  display: none;
-}
-body.reels .map-wrap {
-  overflow: visible;
-  width: 100%;
-}
-body.reels #map {
-  min-width: 0;
-}
-body.reels .chips {
-  margin: 0;
-}
-body.reels .chip {
-  font-size: 17px;
-  padding: 6px 9px;
-}
-#exit-reels {
-  position: fixed;
-  right: 12px;
-  top: 12px;
-  opacity: 0;
-}
-#exit-reels:hover,
-#exit-reels:focus {
-  opacity: 1;
-}
 @media (max-width: 520px) {
   main {
     padding: 26px 14px;
@@ -342,9 +297,6 @@ body.reels .chip {
   }
   .controls {
     justify-content: flex-start;
-  }
-  body.reels .map-wrap {
-    margin: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
