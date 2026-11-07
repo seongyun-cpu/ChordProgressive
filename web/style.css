@@ -341,3 +341,9 @@ legend {
 .chip.voicing-changed { animation: voicing-change 0.5s ease-out; }
 @keyframes voicing-change { 0%, 100% { opacity: 1; } 30%, 70% { opacity: 0.2; } }
 @media (prefers-reduced-motion: reduce) { .chip.voicing-changed { animation: none; } }
+
+.setting-note { color: #666; font-size: 12px; }
+.paste-label { flex-wrap: wrap; }
+#paste-chords { min-width: 0; max-width: 100%; }
+#status button { padding: 2px 8px; min-height: 30px; margin-left: 6px; font-size: 13px; }
+button:disabled { opacity: 0.45; cursor: default; }

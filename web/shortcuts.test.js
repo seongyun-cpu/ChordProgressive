@@ -7,7 +7,7 @@ describe("공통 단축키", () => {
       expect(shortcutAction({ code: "KeyX", [modifier]: true })).toBeNull();
       expect(
         shortcutAction({ code: "KeyZ", [modifier]: true, shiftKey: true }),
-      ).toBeNull();
+      ).toBe("redo");
     });
   }
   it("A·L·Space는 버튼에 초점이 있어도 작동한다", () => {
@@ -54,4 +54,10 @@ it("Shift+Backspace만 비우고 입력란·조합·추가 modifier는 보호한
   expect(shortcutAction(event, { editable: true })).toBeNull();
   for (const modifier of ["metaKey", "ctrlKey", "altKey", "isComposing"])
     expect(shortcutAction({ ...event, [modifier]: true })).toBeNull();
+});
+
+it("Ctrl+Y는 다시하기이고 입력란에서는 편집을 유지한다", () => {
+  expect(shortcutAction({ key: "y", ctrlKey: true })).toBe("redo");
+  expect(shortcutAction({ code: "KeyY", ctrlKey: true }, { editable: true })).toBeNull();
+  expect(shortcutAction({ code: "KeyZ", metaKey: true, shiftKey: true }, { editable: true })).toBeNull();
 });

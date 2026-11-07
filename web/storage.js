@@ -42,6 +42,7 @@ function validateSettings(settings = {}, chordCount = MAX_CHORDS) {
   for (const [key, values] of [
     ["timbre", ["piano", "pad", "pluck"]],
     ["rhythm", ["block", "arpeggio", "strum"]],
+    ["timeSignature", ["3/4", "4/4"]],
     ["type", ["auto", "close", "shell", "drop2", "rootlessA", "rootlessB", "rootless", "spread"]],
   ]) {
     if (settings[key] !== undefined) {
@@ -50,7 +51,7 @@ function validateSettings(settings = {}, chordCount = MAX_CHORDS) {
       result[key] = settings[key];
     }
   }
-  for (const key of ["strict", "tritone", "backdoor", "iiV", "neoSoul"]) {
+  for (const key of ["strict", "tritone", "backdoor", "iiV", "neoSoul", "seventh", "metronome", "allArrows", "copyVoicingNames"]) {
     if (settings[key] !== undefined) {
       if (typeof settings[key] !== "boolean")
         throw new Error("진행 옵션이 올바르지 않아요.");
@@ -182,8 +183,8 @@ function variableLength(value) {
   while ((value = Math.floor(value / 128))) bytes.unshift((value & 127) | 128);
   return bytes;
 }
-export function makeMidi(voicings, bpm = 90, beats = 2) {
-  validateSettings({ bpm, beats });
+export function makeMidi(voicings, bpm = 90, beats = 2, timeSignature = "4/4") {
+  validateSettings({ bpm, beats, timeSignature });
   if (
     !Array.isArray(voicings) ||
     !voicings.length ||
@@ -201,6 +202,8 @@ export function makeMidi(voicings, bpm = 90, beats = 2) {
     (tempo >>> 16) & 255,
     (tempo >>> 8) & 255,
     tempo & 255,
+    // 분모는 2의 지수로 기록한다. 코드 길이는 기존 4분음표 박 단위를 유지한다.
+    0, 255, 88, 4, Number(timeSignature[0]), 2, 24, 8,
     0,
     192,
     0,

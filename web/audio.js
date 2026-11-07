@@ -32,6 +32,20 @@ export function scheduleWindow(
   return { events, cursor: next };
 }
 
+// 메트로놈은 코드 경계와 독립적인 4분음표 시간축을 유지한다.
+export function metronomeWindow(start, beatDuration, cursor, totalBeats, now, beatsPerBar, loop = false) {
+  const events = [];
+  let next = cursor;
+  if (!(beatDuration > 0) || !(totalBeats > 0)) return { events, cursor: next };
+  // 늦어진 클릭은 몰아서 연주하지 않고 다음 박부터 이어간다.
+  next = Math.max(next, Math.ceil(Math.max(0, now - start) / beatDuration - 1e-9));
+  while ((loop || next < totalBeats) && start + next * beatDuration < now + SCHEDULE_AHEAD) {
+    events.push({ time: start + next * beatDuration, ordinal: next, accent: next % beatsPerBar === 0 });
+    next++;
+  }
+  return { events, cursor: next };
+}
+
 export function rhythmEvents(notes, duration, rhythm = "block") {
   return notes.map((midi, index) => {
     const offset =
@@ -105,6 +119,10 @@ export class AudioEngine {
     this.note(voicing.bass, time, duration * 0.94, "pad", 0.09);
   }
 
+  click(time, accent, duration = 0.045) {
+    this.note(accent ? 96 : 89, time, duration, "pluck", accent ? 0.13 : 0.075);
+  }
+
   async audition(voicing, settings = {}) {
     this.stop();
     const generation = this.generation;
@@ -129,6 +147,8 @@ export class AudioEngine {
     timbre = "piano",
     rhythm = "block",
     loop = false,
+    timeSignature = "4/4",
+    metronome = false,
     onStep = () => {},
     onEnd = () => {},
   }) {
@@ -136,6 +156,8 @@ export class AudioEngine {
     const generation = this.generation;
     if (!Array.isArray(voicings) || voicings.some(v => !isValidVoicing(v)))
       throw new Error("보이싱 음을 확인해주세요.");
+    if (!["3/4", "4/4"].includes(timeSignature) || typeof metronome !== "boolean")
+      throw new Error("박자표와 메트로놈 설정을 확인해주세요.");
     const snapshot = voicings.map(v => ({ bass: v.bass, upper: [...v.upper] }));
     if (!snapshot.length) return;
     const tempo = Number.isFinite(+bpm)
@@ -144,11 +166,15 @@ export class AudioEngine {
     const beatCount = Number.isFinite(+beats)
       ? Math.max(0.25, Math.min(16, +beats))
       : 2;
-    const duration = (60 / tempo) * beatCount;
+    const beatDuration = 60 / tempo;
+    const duration = beatDuration * beatCount;
+    const totalBeats = snapshot.length * beatCount;
+    const beatsPerBar = Number(timeSignature[0]);
     const ac = await this.ready();
     if (generation !== this.generation) return;
     const start = ac.currentTime + 0.04;
     let cursor = 0;
+    let beatCursor = 0;
     let shown = -1;
     this.playing = true;
     const pump = () => {
@@ -162,6 +188,15 @@ export class AudioEngine {
         loop,
       );
       cursor = result.cursor;
+      if (metronome) {
+        const clicks = metronomeWindow(start, beatDuration, beatCursor, totalBeats,
+          ac.currentTime, beatsPerBar, loop);
+        beatCursor = clicks.cursor;
+        for (const event of clicks.events) {
+          const remaining = loop ? Infinity : start + totalBeats * beatDuration - event.time;
+          this.click(event.time, event.accent, Math.min(0.045, remaining));
+        }
+      }
       for (const event of result.events) {
         // 지연된 탭이 돌아오면 현재 코드부터 재개한다.
         const remaining = event.time + duration - ac.currentTime;

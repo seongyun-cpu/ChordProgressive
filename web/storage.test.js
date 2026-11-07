@@ -293,3 +293,48 @@ describe("보이싱 설정 저장·공유", () => {
     expect(decodeProgression(encodeProgression([], { locks: {} })).settings).toEqual({ locks: {} });
   });
 });
+
+
+describe("박자표와 선택 설정 저장·공유", () => {
+  it.each(["3/4", "4/4"])("%s와 7th·메트로놈·표시 옵션이 왕복한다", timeSignature => {
+    const ids = ["C", "C", "E7>Am", "Am"];
+    const settings = { timeSignature, seventh: true, neoSoul: false, metronome: true,
+      allArrows: false, copyVoicingNames: true, beats: 2 };
+    expect(decodeProgression(encodeProgression(ids, settings))).toEqual({ ids, settings });
+    const storage = memoryStorage();
+    saveProgression("박자 연습", ids, settings, storage);
+    expect(listProgressions(storage)[0].settings).toEqual(settings);
+  });
+  it.each([
+    { timeSignature: "6/8" }, { timeSignature: 3 }, { timeSignature: null },
+    { seventh: 1 }, { metronome: "true" }, { allArrows: null }, { copyVoicingNames: "false" },
+  ])("잘못된 설정 %j를 거절한다", settings => {
+    expect(() => encodeProgression(["C"], settings)).toThrow();
+    expect(() => decodeProgression(`#C?s=${encodeURIComponent(JSON.stringify(settings))}`)).toThrow();
+    expect(() => saveProgression("설정", ["C"], settings, memoryStorage())).toThrow();
+  });
+  it("기존 링크는 새 기본 설정을 주입하지 않는다", () => {
+    expect(decodeProgression("#C.E7%3EAm.Am").settings).toEqual({});
+    expect(decodeProgression(encodeProgression(["C"], { bpm: 90 })).settings).toEqual({ bpm: 90 });
+  });
+});
+
+describe("MIDI 박자표", () => {
+  const voicings = [{ bass: 36, upper: [60, 64, 67] }, { bass: 36, upper: [60, 64, 67] }];
+  it.each([["3/4", 3], ["4/4", 4]])("%s는 time signature 메타를 기록하고 코드 길이는 유지한다", (signature, numerator) => {
+    const events = parseMidi(makeMidi(voicings, 120, 2, signature));
+    expect(events.filter(e => e.status === 255 && e.type === 88)).toEqual([
+      { time: 0, status: 255, type: 88, data: [numerator, 2, 24, 8] },
+    ]);
+    expect([...new Set(events.filter(e => e.status === 144).map(e => e.time))]).toEqual([0, 960]);
+    expect(events.at(-1).time).toBe(1920);
+  });
+  it("생략한 박자표는 4/4이며 분수 박도 그대로 기록한다", () => {
+    const events = parseMidi(makeMidi(voicings, 90, 0.5));
+    expect(events.find(e => e.type === 88).data).toEqual([4, 2, 24, 8]);
+    expect(events.at(-1).time).toBe(480);
+  });
+  it.each(["6/8", "3", "", null, 4])("지원하지 않는 MIDI 박자표 %j를 거절한다", signature => {
+    expect(() => makeMidi(voicings, 90, 2, signature)).toThrow();
+  });
+});

@@ -6,6 +6,9 @@ import {
   chordDescription,
 } from "./theory.js";
 import { computeVoicings, displayName } from "./voicing.js";
+import { SnapshotHistory } from "./history.js";
+import { canPickChord, isEdgeVisible } from "./map-view.js";
+import { parseProgressionText, formatProgressionText } from "./progression-text.js";
 import { renderVoicingPanel } from "./voicing-panel.js";
 import { shortcutAction } from "./shortcuts.js";
 import { AudioEngine } from "./audio.js";
@@ -24,6 +27,8 @@ const $ = (id) => document.getElementById(id),
   svg = $("map"),
   NS = "http://www.w3.org/2000/svg";
 const engine = new AudioEngine();
+const history = new SnapshotHistory();
+let hoveredNode;
 let map = buildChordMap(),
   rotation = 0,
   prog = [],
@@ -38,12 +43,17 @@ let map = buildChordMap(),
 let nodes = [],
   edges = [],
   usedLayer;
-let voicingType = "auto", neoSoul = false, locks = {}, selectedChord = -1;
+let voicingType = "auto", neoSoul = false, seventh = false, locks = {}, selectedChord = -1;
 let voicingCache = { key: "", value: [] };
 const visible = { dominant: true, ring: true, passing: true };
 const settings = () => ({
   type: voicingType,
   neoSoul,
+  seventh,
+  timeSignature: $("time-signature").value,
+  metronome: $("metronome").checked,
+  allArrows: $("all-arrows").checked,
+  copyVoicingNames: $("copy-voicing-names").checked,
   locks,
   strict: $("strict").checked,
   rotation,
@@ -186,6 +196,8 @@ function draw() {
     el("circle", { r: 26, class: "hit" }, g);
     g.onclick = () => pick(n.idx);
     g.onpointerenter = (e) => {
+      hoveredNode = n.idx;
+      render();
       const tip = $("tooltip");
       tip.textContent = chordDescription(n, map);
       tip.hidden = false;
@@ -194,9 +206,12 @@ function draw() {
       tip.style.top = Math.min(e.clientY + 16, innerHeight - 90) + "px";
     };
     g.onpointerleave = () => {
+      hoveredNode = undefined;
+      render();
       $("tooltip").hidden = true;
     };
-    g.onfocus = () => status(chordDescription(n, map));
+    g.onfocus = () => { hoveredNode = n.idx; render(); status(chordDescription(n, map)); };
+    g.onblur = () => { hoveredNode = undefined; render(); };
     g.onkeydown = (e) => {
       if (e.key === "Enter") {
         e.stopPropagation();
@@ -230,7 +245,7 @@ function render(animate = false) {
     const e = map.edges[i];
     p.setAttribute(
       "class",
-      `edge ${category(e)} ${e.from === last ? "option" : ""} ${visible[category(e)] ? "" : "hidden"}`,
+      `edge ${category(e)} ${e.from === last ? "option" : ""} ${isEdgeVisible(e, { current: playing || demoActive ? prog[playIdx] : last, hovered: hoveredNode, allArrows: $("all-arrows").checked, categoryVisible: visible[category(e)] }) ? "" : "hidden"}`,
     );
   });
   usedLayer.replaceChildren();
@@ -238,6 +253,7 @@ function render(animate = false) {
     const a = map.nodes[prog[i - 1]],
       b = map.nodes[prog[i]],
       edge = map.edges.find((e) => e.from === a.idx && e.to === b.idx);
+    if (a.idx === b.idx) continue;
     const p = el(
       "path",
       {
@@ -308,6 +324,9 @@ function render(animate = false) {
     $("candidates").append(b);
   }
   $("play").textContent = playing ? "■ 정지" : "▶ 재생";
+  $("undo").disabled = !history.canUndo;
+  $("redo").disabled = !history.canRedo;
+  $("bar-length").textContent = `1마디 = ${settings().timeSignature[0]}박`;
 }
 function chordName(index) {
   return displayName(map.nodes[prog[index]], settings(), map.nodes[prog[index + 1]]);
@@ -320,8 +339,10 @@ function replaceProgression(next, resetLocks = false) {
     status(`${error.message} 해당 보이싱의 잠금을 해제한 뒤 다시 시도해주세요.`);
     return false;
   }
+  const before = snapshot();
   prog = next;
   locks = nextLocks;
+  history.record(before, snapshot());
   selectedChord = resetLocks ? -1 : Math.min(selectedChord, prog.length - 1);
   return true;
 }
@@ -338,11 +359,7 @@ function pick(idx) {
     stop();
     replaceProgression([], true);
   } else if (playing) stop();
-  if (
-    $("strict").checked &&
-    ((prog.length && !opts().some((e) => e.to === idx)) ||
-      (!prog.length && !canStartChord(map.nodes[idx])))
-  ) {
+  if (!canPickChord(map, prog, idx, $("strict").checked)) {
     status(
       "화살표로 연결된 후보를 선택하세요. 자유롭게 고르려면 화살표만 허용을 꺼주세요.",
     );
@@ -384,17 +401,28 @@ async function play() {
   }
 }
 function undo() {
-  stop();
-  if (!replaceProgression(prog.slice(0, -1))) return;
-  focus = 0;
-  render();
+  const previous = history.undo(snapshot());
+  if (!previous) return;
+  apply(previous, false);
+  status("되돌렸어요.");
+}
+function redo() {
+  const next = history.redo(snapshot());
+  if (!next) return;
+  apply(next, false);
+  status("다시 했어요.");
 }
 function clear() {
-  if (prog.length >= 4 && !window.confirm("코드 진행을 모두 비울까요?")) return;
   stop();
   replaceProgression([], true);
   focus = 0;
   render();
+  status("비웠어요 · ");
+  const restore = document.createElement("button");
+  restore.textContent = "되돌리기";
+  restore.disabled = !history.canUndo;
+  restore.onclick = undo;
+  $("status").append(restore);
 }
 function walk() {
   stop();
@@ -430,20 +458,15 @@ function demo() {
   };
   demoFrame = requestAnimationFrame(step);
 }
-function rebuild() {
-  stop();
-  const ids = prog.map((i) => map.nodes[i].id);
-  map = buildChordMap(settings());
-  const rebuilt = ids.map((id) => map.nodes.findIndex((n) => n.id === id));
-  if (rebuilt.includes(-1)) {
-    replaceProgression([], true);
-    status(
-      "꺼진 추가 화성의 코드가 있어 진행을 비웠습니다. 저장한 진행은 유지돼요.",
-    );
-  }
-  else replaceProgression(rebuilt);
-  focus = 0;
-  draw();
+function rebuild(before) {
+  const nextSettings = settings();
+  const nextMap = buildChordMap(nextSettings);
+  const ids = before.ids;
+  const missing = ids.some(id => !nextMap.nodes.some(n => n.id === id));
+  apply({ ids: missing ? [] : ids, settings: { ...nextSettings, locks: missing ? {} : locks } }, false);
+  history.record(before, snapshot());
+  render();
+  if (missing) status("꺼진 추가 화성의 코드가 있어 진행을 비웠어요. 되돌리기로 복구할 수 있어요.");
 }
 function cycle(d) {
   if (demoActive) {
@@ -509,6 +532,7 @@ function toggleLoop() {
 }
 $("loop").onclick = toggleLoop;
 $("undo").onclick = undo;
+$("redo").onclick = redo;
 $("clear").onclick = clear;
 $("walk").onclick = walk;
 $("demo").onclick = demo;
@@ -522,24 +546,28 @@ function flashChanged(before, after, except = -1) {
   });
 }
 function changeVoicingSettings() {
-  const nextType = $("voicing-type").value, nextNeo = $("neo-soul").checked;
+  const nextType = $("voicing-type").value, nextNeo = $("neo-soul").checked, nextSeventh = $("seventh").checked;
   try {
-    const after = computeVoicings(prog.map(i => map.nodes[i]), { ...settings(), type: nextType, neoSoul: nextNeo });
+    const after = computeVoicings(prog.map(i => map.nodes[i]), { ...settings(), type: nextType, neoSoul: nextNeo, seventh: nextSeventh });
     const before = progressionVoicings();
+    history.record(snapshot(), { ids: snapshot().ids, settings: { ...settings(), type: nextType, neoSoul: nextNeo, seventh: nextSeventh } });
     stop();
     voicingType = nextType;
     neoSoul = nextNeo;
+    seventh = nextSeventh;
     render();
     flashChanged(before, after);
     status("보이싱 설정을 적용했습니다.");
   } catch (error) {
     $("voicing-type").value = voicingType;
     $("neo-soul").checked = neoSoul;
+    $("seventh").checked = seventh;
     status(`${error.message} 잠금을 해제한 뒤 설정을 바꿔주세요.`);
   }
 }
 $("voicing-type").onchange = changeVoicingSettings;
 $("neo-soul").onchange = changeVoicingSettings;
+$("seventh").onchange = changeVoicingSettings;
 $("voicing-lock").onclick = run(() => {
   if (selectedChord < 0) return;
   const before = progressionVoicings();
@@ -547,6 +575,7 @@ $("voicing-lock").onclick = run(() => {
   if (nextLocks[selectedChord]) delete nextLocks[selectedChord];
   else nextLocks[selectedChord] = structuredClone(before[selectedChord]);
   const after = computeVoicings(prog.map(i => map.nodes[i]), { ...settings(), locks: nextLocks });
+  history.record(snapshot(), { ids: snapshot().ids, settings: { ...settings(), locks: nextLocks } });
   stop();
   locks = nextLocks;
   render();
@@ -559,10 +588,18 @@ $("voicing-truncate").onclick = () => {
   if (replaceProgression(prog.slice(0, selectedChord + 1))) { focus = 0; render(); }
 };
 $("strict").onchange = () => render();
-for (const id of ["tritone", "backdoor", "iiV"]) $(id).onchange = rebuild;
-for (const id of ["bpm", "beats", "timbre", "rhythm"])
+$("all-arrows").onchange = () => render();
+for (const id of ["tritone", "backdoor", "iiV"]) $(id).onchange = () => {
+  const checked = $(id).checked;
+  $(id).checked = !checked;
+  const before = snapshot();
+  $(id).checked = checked;
+  rebuild(before);
+};
+for (const id of ["bpm", "beats", "timbre", "rhythm", "time-signature", "metronome"])
   $(id).onchange = () => {
     if (id === "bpm") $("bpm").value = settings().bpm;
+    render();
     if (playing) {
       stop();
       void play();
@@ -581,23 +618,28 @@ $("legend").onchange = () => {
 function snapshot() {
   return { ids: prog.map((i) => map.nodes[i].id), settings: settings() };
 }
-function apply(data) {
+function apply(data, record = true) {
+  const before = snapshot();
   const s = data.settings ?? {};
   const nextMap = buildChordMap(s);
   const path = data.ids.map(id => nextMap.nodes.findIndex(n => n.id === id));
   if (path.includes(-1)) throw new Error("현재 맵에서 찾을 수 없는 코드가 포함되어 있어요.");
-  const nextOptions = { ...s, type: s.type ?? "auto", neoSoul: s.neoSoul ?? false, locks: s.locks ?? {} };
+  const nextOptions = { ...s, type: s.type ?? "auto", neoSoul: s.neoSoul ?? false, seventh: s.seventh ?? false, locks: s.locks ?? {} };
   computeVoicings(path.map(i => nextMap.nodes[i]), nextOptions);
   stop();
   voicingType = nextOptions.type;
   neoSoul = nextOptions.neoSoul;
+  seventh = nextOptions.seventh;
   locks = structuredClone(nextOptions.locks);
   selectedChord = -1;
-  // 기존 혼합 rootless 링크도 읽되 기본 선택 목록은 요청한 일곱 타입이다.
-  if (voicingType === "rootless" && !$("voicing-type").querySelector('[value="rootless"]'))
-    $("voicing-type").add(new Option("루트리스 혼합 · rootless", "rootless"));
   $("voicing-type").value = voicingType;
   $("neo-soul").checked = neoSoul;
+  $("seventh").checked = seventh;
+  $("time-signature").value = s.timeSignature ?? "4/4";
+  $("metronome").checked = s.metronome ?? false;
+  $("all-arrows").checked = s.allArrows ?? false;
+  $("copy-voicing-names").checked = s.copyVoicingNames ?? false;
+  $("loop").setAttribute("aria-pressed", String(s.loop ?? false));
   rotation = s.rotation ?? 0;
   $("strict").checked = s.strict ?? true;
   if (
@@ -611,8 +653,30 @@ function apply(data) {
   map = nextMap;
   prog = path;
   focus = 0;
+  hoveredNode = undefined;
+  if (record) history.record(before, snapshot());
   draw();
 }
+$("copy-chords").onclick = run(async () => {
+  if (!prog.length) throw new Error("먼저 코드를 선택하세요.");
+  const text = formatProgressionText(prog.map(i => map.nodes[i]), settings(), $("copy-voicing-names").checked);
+  try {
+    await navigator.clipboard.writeText(text);
+    status("코드 진행을 복사했습니다.");
+  } catch {
+    $("paste-chords").value = text;
+    $("paste-chords").focus();
+    $("paste-chords").select();
+    status("복사 권한이 없어 입력란에 넣었어요. ⌘C / Ctrl+C로 복사하세요.");
+  }
+});
+$("import-chords").onclick = run(() => {
+  const parsed = parseProgressionText($("paste-chords").value, map);
+  if (parsed.unknown.length) throw new Error(`찾을 수 없는 코드: ${parsed.unknown.join(", ")}`);
+  if (!parsed.ids.length) throw new Error("불러올 코드를 입력해주세요.");
+  apply({ ids: parsed.ids, settings: { ...settings(), locks: {} } });
+  status("코드 진행을 불러왔어요. 되돌리기로 이전 진행을 복구할 수 있어요.");
+});
 function refreshSaved() {
   const select = $("saved");
   select.replaceChildren(new Option("진행 선택", ""));
@@ -654,7 +718,7 @@ $("share").onclick = run(async () => {
 });
 function progressionVoicings() {
   const chordNodes = prog.map(i => map.nodes[i]);
-  const key = JSON.stringify([chordNodes.map(n => n.id), voicingType, neoSoul, locks]);
+  const key = JSON.stringify([chordNodes.map(n => n.id), voicingType, neoSoul, seventh, locks]);
   if (key !== voicingCache.key)
     voicingCache = { key, value: computeVoicings(chordNodes, settings()) };
   return voicingCache.value;
@@ -683,6 +747,7 @@ $("midi-export").onclick = run(() => {
           progressionVoicings(),
           settings().bpm,
           settings().beats,
+          settings().timeSignature,
         ),
       ],
       { type: "audio/midi" },
@@ -718,13 +783,7 @@ $("midi").onclick = run(async () => {
       const candidates = map.nodes.filter((n) =>
         matches.some((m) => m.rootPc === n.rootPc && m.kind === n.kind),
       );
-      const allowed = candidates.filter(
-        (n) =>
-          !$("strict").checked ||
-          (!prog.length
-            ? canStartChord(n)
-            : opts().some((e) => e.to === n.idx)),
-      );
+      const allowed = candidates.filter(n => canPickChord(map, prog, n.idx, $("strict").checked));
       if (!allowed.length) {
         status(
           candidates.length
@@ -809,6 +868,7 @@ document.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   ({
     undo,
+    redo,
     clear,
     walk,
     loop: toggleLoop,

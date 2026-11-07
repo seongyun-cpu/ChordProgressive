@@ -60,6 +60,7 @@
           aria-keyshortcuts="Meta+Z Control+Z"
         >
           되돌리기</button
+        ><button id="redo" title="다시하기 (⌘Shift+Z / Ctrl+Y)" aria-keyshortcuts="Meta+Shift+Z Control+Y">다시하기</button
         ><button
           id="clear"
           title="비우기 (Shift+Backspace)"
@@ -77,6 +78,9 @@
             >12시 코드
             <select id="rotation"></select
           ></label>
+          <label>박자표 <select id="time-signature"><option value="3/4">3/4</option><option value="4/4" selected>4/4</option></select></label>
+          <label><input id="metronome" type="checkbox" />메트로놈</label>
+          <span id="bar-length" class="setting-note">1마디 = 4박</span>
           <label
             >BPM
             <input
@@ -90,6 +94,7 @@
             <select id="beats">
               <option value="1">1박</option>
               <option value="2" selected>2박</option>
+              <option value="3">3박</option>
               <option value="4">4박</option>
               <option value="8">8박</option>
             </select></label
@@ -119,13 +124,16 @@
               <option value="drop2">드롭 2 · drop2</option>
               <option value="rootlessA">루트리스 A · rootlessA</option>
               <option value="rootlessB">루트리스 B · rootlessB</option>
+              <option value="rootless">루트리스 자동 · rootless</option>
               <option value="spread">넓게 · spread</option>
             </select>
           </label>
+          <label><input id="seventh" type="checkbox" />7th</label>
           <label><input id="neo-soul" type="checkbox" />네오소울 · 확장음</label>
         </div>
         <fieldset>
           <legend>화살표 표시 · 선의 명도로 구분</legend>
+          <label><input id="all-arrows" type="checkbox" />전체 화살표 보기</label>
           <label><input type="checkbox" id="legend" checked />범례</label
           ><label
             ><input type="checkbox" data-edge="dominant" checked />도미넌트
@@ -149,6 +157,12 @@
       </details>
       <details class="settings">
         <summary>저장 · 공유 · 외부 건반</summary>
+        <div class="controls">
+          <button id="copy-chords">코드 복사</button>
+          <label><input id="copy-voicing-names" type="checkbox" />보이싱 이름으로 복사</label>
+          <label class="paste-label">코드 붙여넣기 <input id="paste-chords" type="text" maxlength="12000" placeholder="C – E7 – Am – D7" /></label>
+          <button id="import-chords">진행으로 불러오기</button>
+        </div>
         <div class="controls">
           <label
             >진행 이름
@@ -174,7 +188,8 @@
       <p id="status" role="status"></p>
       <p class="keys">
         Space 재생/정지 · A 자동 산책 · L 반복<br />
-        ⌘Z / Ctrl+Z 되돌리기 · Shift+Backspace 비우기<br />
+        ⌘Z / Ctrl+Z 되돌리기 · ⌘Shift+Z / Ctrl+Y 다시하기<br />
+        Shift+Backspace 비우기<br />
         ← → 후보 선택 · Enter 추가<br />맵의 빈 곳을 드래그하면 회전합니다.
         모바일에서는 맵을 좌우로 스크롤할 수 있어요.
       </p>

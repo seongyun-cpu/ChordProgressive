@@ -10,11 +10,11 @@ const pc = note => ((note % 12) + 12) % 12;
 const rootless = type => type === "rootlessA" || type === "rootlessB" || type === "rootless";
 
 function settings(options) {
-  const { type = "auto", neoSoul = false, locks = {} } = options;
-  if (!TYPES.includes(type) || typeof neoSoul !== "boolean" ||
+  const { type = "auto", neoSoul = false, seventh = false, locks = {} } = options;
+  if (!TYPES.includes(type) || typeof neoSoul !== "boolean" || typeof seventh !== "boolean" ||
       !locks || typeof locks !== "object" || Array.isArray(locks))
     throw new TypeError("보이싱 설정을 확인해주세요.");
-  return { type, neoSoul, locks };
+  return { type, neoSoul, seventh, locks };
 }
 
 function validateNode(node) {
@@ -30,6 +30,14 @@ function harmony(node, options, nextNode) {
   const dominant = node.kind.startsWith("dom");
   let intervals = [...HARMONIES[node.kind]];
   let suffix = { maj: "", min: "m", maj7: "maj7", maj9: "maj9", min7: "m7", min9: "m9", dom7: "7", dom13: "13", dim7: "°" }[node.kind];
+  // 7th는 노드와 무관한 연주 화성이다. 네오소울/루트리스 확장이 아래에서 우선한다.
+  if (options.seventh && node.kind === "maj") {
+    intervals = [...HARMONIES.maj7];
+    suffix = "maj7";
+  } else if (options.seventh && node.kind === "min") {
+    intervals = [...HARMONIES.min7];
+    suffix = "m7";
+  }
   // 루트리스만 예외로 neoSoul:false에서도 7음·9음을 보충한다.
   if (major && (options.neoSoul || rootless(options.type) || node.kind === "maj9")) {
     intervals = [0, 4, 7, 11, 14];
@@ -207,8 +215,8 @@ function optimize(layers) {
 
 /**
  * @param {Array<{rootPc: number, kind: string}>} nodes
- * @param {{type?: 'auto'|'close'|'shell'|'drop2'|'rootlessA'|'rootlessB'|'rootless'|'spread', neoSoul?: boolean, locks?: Object<number, {bass: number, upper: number[]}>}} options
- * 기본 auto/neoSoul:false/잠금 없음은 기존 triad까지 보존한다.
+ * @param {{type?: 'auto'|'close'|'shell'|'drop2'|'rootlessA'|'rootlessB'|'rootless'|'spread', neoSoul?: boolean, seventh?: boolean, locks?: Object<number, {bass: number, upper: number[]}>}} options
+ * 기본 auto/neoSoul:false/seventh:false/잠금 없음은 기존 triad까지 보존한다.
  * 화성은 잠금과 독립적이다. 루트리스만 neoSoul:false에서도 7음·9음을 보충한다.
  * 나머지 모드는 타입별 후보 경로를 최적화하며, 부분 잠금 밖의 코드도 탐색한다.
  * 잠금은 정확한 MIDI 음을 고정한다. 화음·저음 간격 위반은 오류로 알린다.
@@ -220,7 +228,7 @@ export function computeVoicings(nodes, options = {}) {
   for (const index of Object.keys(config.locks))
     if (!/^(0|[1-9]\d*)$/.test(index) || Number(index) >= nodes.length)
       throw new RangeError("잠금 코드 위치를 확인해주세요.");
-  const legacyMode = config.type === "auto" && !config.neoSoul && nodes.every(node => QUALITY[node.kind]);
+  const legacyMode = config.type === "auto" && !config.neoSoul && !config.seventh && nodes.every(node => QUALITY[node.kind]);
   let previous = null;
   const legacy = legacyMode ? nodes.map(node => {
     previous = voiceLead(previous, node);

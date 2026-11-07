@@ -7,8 +7,10 @@ export function shortcutAction(
   const key = event.key?.toLowerCase();
   const code =
     event.code ||
-    { z: "KeyZ", x: "KeyX", a: "KeyA", l: "KeyL", " ": "Space" }[key];
+    { z: "KeyZ", y: "KeyY", x: "KeyX", a: "KeyA", l: "KeyL", " ": "Space" }[key];
   if (event.metaKey || event.ctrlKey) {
+    if (code === "KeyZ" && event.shiftKey) return "redo";
+    if (code === "KeyY" && event.ctrlKey && !event.shiftKey) return "redo";
     if (event.shiftKey) return null;
     return code === "KeyZ" ? "undo" : null;
   }

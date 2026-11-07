@@ -311,3 +311,29 @@ describe("음역과 고정 루트리스 순서", () => {
     expect(computeVoicings([c], { type: "rootlessA", neoSoul: true, locks: { 0: locked } })[0]).toEqual(locked);
   });
 });
+
+describe("7th 화성 모드", () => {
+  it("maj/min만 7화음으로 연주하며 노드 id·kind는 유지한다", () => {
+    const progression = [c, chord(9, "min", "Am"), chord(4, "dom7", "E7"), chord(11, "dim7", "B°")];
+    const before = structuredClone(progression);
+    const result = computeVoicings(progression, { seventh: true });
+    expect(pitchClasses(result[0])).toEqual([0, 4, 7, 11]);
+    expect(pitchClasses(result[1])).toEqual([0, 4, 7, 9]);
+    expect(pitchClasses(result[2])).toEqual([2, 4, 8, 11]);
+    expect(pitchClasses(result[3])).toEqual([2, 5, 8, 11]);
+    expect(progression.map(n => displayName(n, { seventh: true }))).toEqual(["Cmaj7", "Am7", "E7", "B°"]);
+    expect(progression).toEqual(before);
+  });
+  it("네오소울이 우선하고 rootless의 9음 예외도 유지한다", () => {
+    expect(displayName(c, { seventh: true, neoSoul: true })).toBe("Cmaj9");
+    expect(displayName(chord(9, "min", "Am"), { seventh: true, neoSoul: true })).toBe("Am9");
+    expect(displayName(c, { seventh: true, type: "rootlessA" })).toBe("Cmaj9");
+    expect(computeVoicings(nodes, { seventh: false })).toEqual(legacy);
+    expect(() => computeVoicings([c], { seventh: "true" })).toThrow();
+  });
+  it("7th 잠금을 유지하고 3화음 잠금은 7th 설정에 맞지 않으면 거절한다", () => {
+    const voicing = computeVoicings([c], { seventh: true })[0];
+    expect(computeVoicings([c], { seventh: true, locks: { 0: voicing } })[0]).toEqual(voicing);
+    expect(() => computeVoicings([c], { seventh: true, locks: { 0: legacy[0] } })).toThrow();
+  });
+});
